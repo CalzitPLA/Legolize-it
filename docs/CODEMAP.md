@@ -5,8 +5,8 @@ part.stl / part.step ──mesh_io.load_part──▶ trimesh.Trimesh (mm)      
         │
         ▼ voxelize.place(vertices, cell, size_mode, size, up)  ─▶ Placement (x' = s·R·x + t), Grid (origin, cell, shape)
         ▼ voxelize.fill_fraction(...)                          ─▶ fraction[nx, ny, nz]  (winding number, s³ samples)
-        ▼ occupancy(fraction, threshold) | surface_cells (thin walls) ; hollow(shell)   ─▶ occ[nx, ny, nz] bool
-        ▼ layout.layout_bricks(occ, sizes)                     ─▶ BrickModel(bricks[layer, i, j, w, d], ids[nx, ny, nz])
+        ▼ occupancy(fraction, threshold) | thin_cells(occ, surface_cells) (thin walls) ; hollow(shell) ─▶ occ bool
+        ▼ layout.layout_connected(occ, sizes)                  ─▶ BrickModel(bricks[layer, i, j, w, d], ids[nx, ny, nz])
         ▼ analysis.stats / connectivity                        ─▶ counts, layers, groups, floating
         ▼ palette.brick_colours (+ surface colours of a coloured input)
 LegoResult ──▶ lego_gui (scene.Scene: input translucent, bricks opaque per layer)
@@ -23,8 +23,8 @@ Arrays are indexed `[i, j, k]` = `[x, y, layer]`; cell `(i, j, k)` spans `origin
 |---|---|
 | `lego_engine/system.py` | `BrickSystem` (every dimension, mm), the size catalogue, `parse_sizes`, `normalise_sizes` |
 | `lego_engine/mesh_io.py` | loading; `find_freecadcmd`, `tessellate_step` (cache `~/.cache/legolize/step/`); `up_matrix` |
-| `lego_engine/voxelize.py` | `Grid`, `Placement`, `place`, `fill_fraction`, `surface_cells`, `occupancy`, `hollow` |
-| `lego_engine/layout.py` | `Brick`, `BrickModel`, `layout_layer` (the score: area, bridging, direction, running bond), `check_cover` |
+| `lego_engine/voxelize.py` | `Grid`, `Placement`, `place`, `fill_fraction`, `surface_cells`, `thin_cells`, `occupancy`, `hollow` |
+| `lego_engine/layout.py` | `Brick`, `BrickModel`, `layout_layer` (the score: area, bridging, direction, running bond, junctions), `layout_connected` (repair passes), `check_cover` |
 | `lego_engine/analysis.py` | `connectivity` (union-find over stud contacts), `layer_islands`, `stats` |
 | `lego_engine/geometry.py` | display meshes (`bricks_display`, `voxel_mesh`: numpy, no booleans) and solids (`brick_solid`, `layer_slab`) |
 | `lego_engine/palette.py` | brick colours, colour modes, `surface_colours` (nearest face of a coloured input), `snap` |
@@ -36,3 +36,4 @@ Arrays are indexed `[i, j, k]` = `[x, y, layer]`; cell `(i, j, k)` spans `origin
 | `lego_gui/viewer.py` | the 3D view widget with its bar (layers, colours, layer slider, camera, PNG) |
 | `lego_gui/settings_panel.py`, `parts_panel.py`, `worker.py`, `app.py`, `__main__.py` | the window |
 | `packaging/logo/` | `golden_teacher.py` (Blender model), `render_logo.py` (Blender render), `make_logo.py` (the chain) |
+| `scripts/check_parts.py` | robustness over many parts (the ABC check) |

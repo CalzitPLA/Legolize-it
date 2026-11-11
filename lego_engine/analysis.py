@@ -2,7 +2,9 @@
 
 Bricks hold together only through studs: two bricks are connected when they are in neighbouring layers and their
 footprints share at least one cell. Bricks side by side in one layer are not connected. A group of connected bricks
-that does not reach the lowest layer is floating - it has nothing under it (it would fall off when built).
+that does not reach the lowest layer is floating - it has nothing under it (it would fall off when built). The largest
+group is the model itself and never floating: when a small stray body is the only thing in the lowest layer (seen on
+ABC parts with several bodies, 2026-11-11: 38 of 41 bricks were "floating"), the model still stands on its own bottom.
 """
 from __future__ import annotations
 
@@ -50,6 +52,7 @@ def connectivity(model: BrickModel) -> Dict:
     sizes: Dict[int, int] = {}
     for r in roots:
         sizes[r] = sizes.get(r, 0) + 1
+    grounded.add(max(sizes, key=lambda r: (sizes[r], -r)))      # the largest group: the model itself
     order = {r: g for g, r in enumerate(sorted(sizes, key=lambda r: -sizes[r]))}
     return {"groups": len(sizes), "largest": max(sizes.values()),
             "floating": [m for m in range(n) if roots[m] not in grounded],

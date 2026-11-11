@@ -20,7 +20,7 @@ from typing import Dict, Optional
 
 import numpy as np
 
-from .mesh_io import STEP_SUFFIXES, clean_env, find_freecadcmd
+from .mesh_io import STEP_SUFFIXES, clean_env, find_freecadcmd, tessellate_step
 
 BUILD_SCRIPT = Path(__file__).with_name("freecad_build.py")
 GUI_ENV = "LEGOLIZE_FREECAD"          # the FreeCAD *window* for "Open in FreeCAD" (default: `freecad` on PATH)
@@ -92,11 +92,17 @@ def write_fcstd(result, path, include_input: bool = True, hollow: bool = False, 
     grid = result.grid
     job = {"out": str(path), "name": name, "system": result.system.to_dict(), "layer_height": float(grid.cell[2]),
            "origin": [float(x) for x in grid.origin], "hollow": bool(hollow),
-           "bricks": [b.to_list() for b in result.model.bricks], "input": None}
+           "bricks": [b.to_list() for b in result.model.bricks], "input": None,
+           "model_diagonal": float(np.linalg.norm(grid.size))}
     src = Path(str(result.settings.input))
     if include_input and src.is_file():
-        job["input"] = {"path": str(src.resolve()), "kind": "step" if src.suffix.lower() in STEP_SUFFIXES else "mesh",
-                        "matrix": result.placement.matrix.tolist()}
+        kind = "step" if src.suffix.lower() in STEP_SUFFIXES else "mesh"
+        job["input"] = {"path": str(src.resolve()), "kind": kind, "matrix": result.placement.matrix.tolist()}
+        if kind == "step":                                   # the fallback: the tessellation (cached, mesh_io)
+            try:
+                job["input"]["mesh"] = str(tessellate_step(src, result.settings.deflection, freecad))
+            except Exception:
+                pass
     tmp = Path(tempfile.mkdtemp(prefix="legolize_fc_"))
     (tmp / "job.json").write_text(json.dumps(job))
     env = clean_env()
@@ -123,9 +129,11 @@ def write_fcstd(result, path, include_input: bool = True, hollow: bool = False, 
     macro = path.with_name(path.stem + "_colours.FCMacro")
     macro.write_text(MACRO.format(fcstd_name=path.name, path=str(path), transparency=80,
                                   colours=json.dumps(names), palette=json.dumps(palette)))
+    for w in info.get("warnings", []):
+        say(f"FreeCAD: {w}")
     say(f"FreeCAD document: {path} ({seconds:.1f} s); colours: {macro.name}")
     return {"fcstd": str(path), "macro": str(macro), "seconds": round(seconds, 2), "objects": info["objects"],
-            "bricks": info["bricks"]}
+            "bricks": info["bricks"], "warnings": info.get("warnings", [])}
 
 
 def freecad_gui() -> Optional[str]:

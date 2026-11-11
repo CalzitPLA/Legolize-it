@@ -18,21 +18,23 @@ from .mesh_io import UP_AXES
 from .palette import MODES as COLOUR_MODES
 from .pipeline import LegoSettings, Legolizer, default_out_dir
 from .system import DEFAULT_SIZES, UNITS, BrickSystem, parse_sizes
+from .voxelize import THIN_MODES
 
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="legolize-it", description=__doc__.split("\n\n")[0])
     ap.add_argument("input", help="the part: .stl or .step/.stp (also .obj/.ply/.off/.3mf/.glb)")
     size = ap.add_mutually_exclusive_group()
-    size.add_argument("--studs", type=float, default=None, help="studs along the longest horizontal side (default 16)")
+    size.add_argument("--studs", type=float, default=None, help="studs along the longest side (default 16)")
     size.add_argument("--scale", type=float, default=None, help="scale factor instead (1 = the part's mm at real size)")
     ap.add_argument("--up", choices=UP_AXES, default="z", help="the part's up axis (default z)")
     ap.add_argument("--unit", choices=UNITS, default="brick", help="layer height: brick (9.6 mm) or plate (3.2 mm)")
     ap.add_argument("--threshold", type=float, default=0.5, help="share of material a cell needs (default 0.5)")
     ap.add_argument("--samples", type=int, default=3, help="sub-samples per cell and axis (default 3)")
     ap.add_argument("--shell", type=int, default=0, help="hollow: keep a shell this many cells thick (0 = solid)")
-    ap.add_argument("--thin-walls", action="store_true",
-                    help="also every cell the surface passes through (sheet metal, beams: thin walls fill no cell)")
+    ap.add_argument("--thin-walls", nargs="?", choices=THIN_MODES, default="auto", const="all",
+                    help="auto (default): surface cells where the material is too thin to fill any cell (sheet metal, "
+                         "profiles); all (or the bare flag): every cell the surface passes; off")
     ap.add_argument("--sizes", default=",".join(f"{a}x{b}" for a, b in DEFAULT_SIZES), help="brick catalogue")
     ap.add_argument("--max-length", type=int, default=8, help="longest brick in studs (0 = no limit)")
     ap.add_argument("--colours", choices=COLOUR_MODES, default="size", help="brick colours (default size)")
@@ -72,6 +74,10 @@ def main(argv=None) -> int:
     summary = {"result": str(out / "result.json"), **{k: result.stats[k] for k in
                ("bricks", "layers", "grid", "size_mm", "counts", "groups", "floating", "stable")},
                "timings": result.timings}
+    if not result.model.bricks:
+        summary["error"] = "no bricks - nothing exported (see the message above)"
+        print(json.dumps(summary, indent=1))
+        return 2
     if args.stl != "none":
         from .export_stl import write_stl_stack
         write_stl_stack(result, out / "stl", args.stl, hollow_bricks=args.hollow_bricks, progress=say)
@@ -81,6 +87,8 @@ def main(argv=None) -> int:
         fc = write_fcstd(result, out / f"{Path(settings.input).stem}.FCStd", include_input=not args.no_input,
                          progress=say)
         summary["fcstd"], summary["macro"] = fc["fcstd"], fc["macro"]
+        if fc.get("warnings"):
+            summary["fcstd_warnings"] = fc["warnings"]
     if args.png:
         from lego_gui.scene import render_png
         summary["png"] = str(render_png(result, args.png))

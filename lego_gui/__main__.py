@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 def main():
     ap = argparse.ArgumentParser(prog="legolize-it", description="Legolize it: parts into bricks")
     ap.add_argument("input", nargs="?", help="a part to open (.stl, .step/.stp, ...)")
-    ap.add_argument("--studs", type=float, default=None, help="studs along the longest horizontal side")
+    ap.add_argument("--studs", type=float, default=None, help="studs along the longest side")
     ap.add_argument("--scale", type=float, default=None, help="scale factor instead of --studs")
     ap.add_argument("--unit", choices=("brick", "plate"), default=None)
     ap.add_argument("--up", default=None, help="the part's up axis: z, y, x, -z, -y, -x")

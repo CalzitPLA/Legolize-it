@@ -15,11 +15,11 @@ from typing import Callable, Dict, Optional, Tuple
 import numpy as np
 
 from .analysis import stats as model_stats
-from .layout import BrickModel, check_cover, layout_bricks
+from .layout import BrickModel, check_cover, layout_connected
 from .mesh_io import load_part
 from .palette import brick_colours, snap, surface_colours
 from .system import DEFAULT_SIZES, BrickSystem, normalise_sizes
-from .voxelize import Grid, Placement, fill_fraction, hollow, occupancy, place, surface_cells
+from .voxelize import THIN_MODES, Grid, Placement, fill_fraction, hollow, occupancy, place, surface_cells, thin_cells
 
 RESULTS = Path.home() / "legolize_results"
 
@@ -28,13 +28,14 @@ RESULTS = Path.home() / "legolize_results"
 class LegoSettings:
     input: str = ""
     up: str = "z"                          # the input's up axis: z, y, x, -z, -y, -x
-    size_mode: str = "studs"               # "studs": studs along the longest horizontal side; "scale": a factor (1 = mm)
+    size_mode: str = "studs"               # "studs": studs along the longest side; "scale": a factor (1 = mm)
     size: float = 16.0
     unit: str = "brick"                    # layer height: "brick" (9.6) or "plate" (3.2)
     threshold: float = 0.5                 # share of material a cell needs to become a brick
     samples: int = 3                       # sub-samples per cell and axis (3 -> 27 points per cell)
     shell: int = 0                         # 0 = solid; n = keep a shell n cells thick
-    thin_walls: bool = False               # also every cell the surface passes through (sheet metal, beams)
+    thin_walls: str = "auto"               # "auto": surface cells where the material is too thin for any cell (sheet
+                                           # metal, profiles); "all": every cell the surface passes; "off"
     sizes: Tuple[Tuple[int, int], ...] = DEFAULT_SIZES
     max_length: int = 8                    # longest brick in studs (0 = the catalogue's)
     bridge_weight: float = 1.5             # layout: reward for bricks spanning bricks below
@@ -54,6 +55,8 @@ class LegoSettings:
         d["system"] = BrickSystem.from_dict(d.get("system", {}))
         if "sizes" in d:
             d["sizes"] = tuple(tuple(s) for s in d["sizes"])
+        if isinstance(d.get("thin_walls"), bool):                     # results of 2026-11-11 stored a bool
+            d["thin_walls"] = "all" if d["thin_walls"] else "off"
         known = set(cls.__dataclass_fields__)
         return cls(**{k: v for k, v in d.items() if k in known})
 
@@ -152,20 +155,34 @@ class Legolizer:
         placement, grid, placed, frac, t_vox = self.voxelize(settings)
         t1 = time.time()
         occ = occupancy(frac, settings.threshold)
-        if settings.thin_walls:
-            occ = occ | self.touched(settings)
+        if settings.thin_walls not in THIN_MODES:
+            raise ValueError(f"thin_walls must be one of {THIN_MODES}, not {settings.thin_walls!r}")
+        thin = 0
+        if settings.thin_walls != "off":
+            touched = self.touched(settings)
+            extra = (touched & ~occ) if settings.thin_walls == "all" else thin_cells(occ, touched)
+            thin = int(extra.sum())
+            occ = occ | extra
         occ = hollow(occ, settings.shell)
         sizes = normalise_sizes(settings.sizes, settings.max_length)
-        model = layout_bricks(occ, sizes, 0, settings.bridge_weight)
+        model = layout_connected(occ, sizes, 0, settings.bridge_weight)
         problems = check_cover(model, occ)
         if problems:
             raise RuntimeError("the brick layout is not exact: " + "; ".join(problems[:5]))
         st = model_stats(model, settings.system, settings.unit)
         st["max_fill"] = round(float(frac.max()), 3) if frac.size else 0.0
+        st["thin_cells"] = thin
         t_layout = time.time() - t1
         if not model.bricks:
             self.say(f"no bricks: no cell is filled to the threshold {settings.threshold:g} (the fullest is "
-                     f"{st['max_fill']:.0%}) - for thin walls switch on 'thin walls', or make the part bigger")
+                     f"{st['max_fill']:.0%})" + ("" if settings.thin_walls == "all" else
+                     " - try thin walls 'all', a lower threshold, or a bigger size"))
+        else:
+            if thin:
+                self.say(f"thin walls: {thin} cells where the material is too thin to fill a cell")
+            if st["layers"] == 1 and st["bricks"] > 1:
+                self.say("one layer only: bricks side by side do not hold together - plates (3.2 mm) or a bigger size "
+                         "give more layers")
         source = self._source_colours(mesh, placed, model, grid, settings)
         self.say(f"{st['bricks']} bricks in {st['layers']} layers ({st['size_mm'][0]} x {st['size_mm'][1]} x "
                  f"{st['size_mm'][2]} mm)" + ("" if st["stable"] else f"; {st['groups']} groups, {st['floating']} floating"))

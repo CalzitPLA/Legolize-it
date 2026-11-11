@@ -58,7 +58,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self.size_mode.addItem("scale factor (1 = mm)", "scale")
         self.size_mode.currentIndexChanged.connect(self._size_mode_changed)
         f.addRow("Size by", self.size_mode)
-        self.size = self._dspin(0.01, 1000, d.size, 2, 1.0, "voxelize", "studs along the longest horizontal side, or "
+        self.size = self._dspin(0.01, 1000, d.size, 2, 1.0, "voxelize", "studs along the longest side, or "
                                 "the scale factor")
         f.addRow("Size", self.size)
         self.unit = QtWidgets.QComboBox()
@@ -92,10 +92,14 @@ class SettingsPanel(QtWidgets.QWidget):
         self.shell.setToolTip("hollow: keep only a shell this many cells thick (saves bricks)")
         self.shell.valueChanged.connect(lambda _: self.changed.emit("layout"))
         f.addRow("Shell", self.shell)
-        self.thin = QtWidgets.QCheckBox("thin walls: every cell the surface passes")
-        self.thin.setToolTip("for sheet metal and beams, whose walls fill too little of any cell for the threshold")
-        self.thin.toggled.connect(lambda _v: self.changed.emit("layout"))
-        f.addRow("", self.thin)
+        self.thin = QtWidgets.QComboBox()
+        self.thin.addItem("auto (where too thin for a cell)", "auto")
+        self.thin.addItem("every cell the surface passes", "all")
+        self.thin.addItem("off", "off")
+        self.thin.setToolTip("sheet metal and profiles fill too little of any cell for the threshold: 'auto' adds the "
+                             "surface's cells where no cell nearby is filled, 'all' adds every cell the surface passes")
+        self.thin.currentIndexChanged.connect(lambda _i: self.changed.emit("layout"))
+        f.addRow("Thin walls", self.thin)
         self.max_length = QtWidgets.QSpinBox()
         self.max_length.setRange(1, 12)
         self.max_length.setValue(d.max_length)
@@ -225,7 +229,7 @@ class SettingsPanel(QtWidgets.QWidget):
             self.threshold.setValue(int(round(s.threshold * 100)))
             self.threshold_label.setText(f"{s.threshold:.2f}")
             self.shell.setValue(s.shell)
-            self.thin.setChecked(s.thin_walls)
+            self.thin.setCurrentIndex(max(0, self.thin.findData(s.thin_walls)))
             self.max_length.setValue(s.max_length)
             self.bridge.setValue(s.bridge_weight)
             self.snap.setChecked(s.snap_colours)
@@ -240,7 +244,7 @@ class SettingsPanel(QtWidgets.QWidget):
         return LegoSettings(
             input=self.path.text().strip(), up=self.up.currentData(), size_mode=self.size_mode.currentData(),
             size=float(self.size.value()), unit=self.unit.currentData(), threshold=self.threshold.value() / 100.0,
-            samples=int(self.samples.value()), shell=int(self.shell.value()), thin_walls=self.thin.isChecked(),
+            samples=int(self.samples.value()), shell=int(self.shell.value()), thin_walls=self.thin.currentData(),
             sizes=tuple(k for k, box in self.size_checks.items() if box.isChecked()),
             max_length=int(self.max_length.value()), bridge_weight=float(self.bridge.value()),
             colour_mode=colour_mode, snap_colours=self.snap.isChecked(),

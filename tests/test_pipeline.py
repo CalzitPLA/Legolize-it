@@ -45,11 +45,47 @@ def test_colours_come_from_a_coloured_input(parts):
 
 def test_an_empty_result_says_why(parts):
     msgs = []
-    r = Legolizer(msgs.append).run(LegoSettings(input=str(parts["plate"]), size_mode="scale", size=1.0, unit="plate"))
+    s = LegoSettings(input=str(parts["plate"]), size_mode="scale", size=1.0, unit="plate", thin_walls="off")
+    r = Legolizer(msgs.append).run(s)
     assert r.stats["bricks"] == 0 and any("thin walls" in m for m in msgs)
+
+
+@pytest.mark.parametrize("mode", ("auto", "all"))
+def test_a_thin_sheet_becomes_one_layer_of_bricks(parts, mode):
     r = Legolizer().run(LegoSettings(input=str(parts["plate"]), size_mode="scale", size=1.0, unit="plate",
-                                     thin_walls=True))
-    assert r.stats["bricks"] > 0 and r.stats["layers"] == 1 and r.stats["cells"] == 80 and r.stats["floating"] == 0
+                                     thin_walls=mode))
+    assert r.stats["layers"] == 1 and r.stats["cells"] == 80 and r.stats["floating"] == 0
+
+
+def test_auto_thin_walls_leave_solid_parts_alone(parts):
+    lz = Legolizer()
+    for name in ("sphere", "L"):
+        on = lz.run(LegoSettings(input=str(parts[name]), size=12, unit="plate", thin_walls="auto"))
+        off = lz.run(LegoSettings(input=str(parts[name]), size=12, unit="plate", thin_walls="off"))
+        assert (on.occupancy == off.occupancy).all(), name
+        assert on.stats["thin_cells"] == 0
+
+
+def test_auto_thin_walls_keep_a_fin_on_its_body(tmp_path):
+    """A 40 mm block with a 1 mm fin sticking out 40 mm: the fin fills no cell, auto adds it, attached to the block."""
+    import trimesh
+    block = trimesh.creation.box((40, 40, 38.4))
+    block.apply_translation((20, 20, 19.2))
+    fin = trimesh.creation.box((41, 1, 38.4))
+    fin.apply_translation((59.5, 20, 19.2))
+    path = tmp_path / "fin.stl"
+    trimesh.boolean.union([block, fin], engine="manifold").export(path)
+    lz = Legolizer()
+    off = lz.run(LegoSettings(input=str(path), size_mode="scale", size=1.0, thin_walls="off"))
+    auto = lz.run(LegoSettings(input=str(path), size_mode="scale", size=1.0, thin_walls="auto"))
+    assert off.occupancy[5:, :, :].sum() == 0                      # the fin is lost without thin walls
+    assert auto.occupancy[5:, 2, :].all()                          # with auto it is there, cell column y = 2
+    assert auto.stats["groups"] == 1 and auto.stats["floating"] == 0
+
+
+def test_old_results_with_a_bool_still_load():
+    assert LegoSettings.from_dict({"thin_walls": True}).thin_walls == "all"
+    assert LegoSettings.from_dict({"thin_walls": False}).thin_walls == "off"
 
 
 def test_stl_stack(parts, tmp_path):

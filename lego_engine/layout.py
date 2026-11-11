@@ -16,6 +16,10 @@ that fit there (free cells only, the catalogue in both orientations) the one wit
   because the brick that would shift the joints is chosen one anchor earlier;
 - orientation: even layers prefer bricks along x and are scanned along x, odd layers along y, so layers cross.
 
+`layout_connected` (what the pipeline uses) adds repair passes: where two groups of bricks touch side by side in a
+layer but do not hold together, the layout is redone with a penalty for ending on that boundary, so a brick reaches
+across (measured 2026-11-11: a 1 mm fin on a 40 mm block, thin walls "auto": 3 groups -> 1).
+
 The result is exact: every occupied cell is covered by exactly one brick and no brick covers an empty cell
 (`check_cover`).
 """
@@ -111,9 +115,13 @@ def _seams(below: Optional[np.ndarray], layer: np.ndarray) -> Tuple[np.ndarray, 
 
 def layout_layer(free: np.ndarray, below: Optional[np.ndarray], sizes: Tuple[Tuple[int, int], ...], k: int,
                  bridge_weight: float = 1.5, orient_weight: float = 0.5,
-                 seam_weight: Optional[float] = None) -> List[Brick]:
+                 seam_weight: Optional[float] = None,
+                 junction: Optional[Tuple[np.ndarray, np.ndarray]] = None,
+                 junction_weight: float = 6.0) -> List[Brick]:
     """Bricks covering the True cells of `free` (nx, ny; consumed). `below`: the brick ids of the layer below or None.
-    `seam_weight` (default 1.6 x bridge_weight): the penalty per cell of a brick's far end that lands on a seam below."""
+    `seam_weight` (default 1.6 x bridge_weight): the penalty per cell of a brick's far end that lands on a seam below.
+    `junction` (jx (nx + 1, ny), jy (nx, ny + 1)): boundaries between groups that did not hold together in an earlier
+    pass (`layout_connected`); a brick ending on one, at either far end, pays `junction_weight` per cell."""
     nx, ny = free.shape
     prefer_x = (k % 2 == 0)
     seam_weight = 1.6 * bridge_weight if seam_weight is None else seam_weight
@@ -156,6 +164,8 @@ def layout_layer(free: np.ndarray, below: Optional[np.ndarray], sizes: Tuple[Tup
                 # only the ends along the brick's length (a crossing brick's side always lies on joints below)
                 aligned = (int(ax[i + w, j:j + d].sum()) if w >= d else 0) + (int(ay[i:i + w, j + d].sum()) if d >= w else 0)
                 score -= seam_weight * aligned
+            if junction is not None:
+                score -= junction_weight * (int(junction[0][i + w, j:j + d].sum()) + int(junction[1][i:i + w, j + d].sum()))
             if w != d and ((w > d) == prefer_x):
                 score += orient_weight
             if score > best_score + 1e-9:
@@ -171,8 +181,10 @@ def layout_layer(free: np.ndarray, below: Optional[np.ndarray], sizes: Tuple[Tup
 
 
 def layout_bricks(occ: np.ndarray, sizes: Iterable[Tuple[int, int]] = DEFAULT_SIZES, max_length: int = 0,
-                  bridge_weight: float = 1.5, orient_weight: float = 0.5) -> BrickModel:
-    """Bricks for every occupied cell of `occ` (nx, ny, nz), layer by layer from the bottom."""
+                  bridge_weight: float = 1.5, orient_weight: float = 0.5,
+                  junctions: Optional[Dict[int, Tuple[np.ndarray, np.ndarray]]] = None) -> BrickModel:
+    """Bricks for every occupied cell of `occ` (nx, ny, nz), layer by layer from the bottom. `junctions`: per layer,
+    boundaries a brick should reach across (see layout_layer)."""
     sizes = normalise_sizes(sizes, max_length)
     nx, ny, nz = occ.shape
     ids = np.full(occ.shape, -1, np.int32)
@@ -183,12 +195,59 @@ def layout_bricks(occ: np.ndarray, sizes: Iterable[Tuple[int, int]] = DEFAULT_SI
         if not layer.any():
             continue
         below = ids[:, :, k - 1] if k > 0 else None
-        new = layout_layer(layer.copy(), below, sizes, k, bridge_weight, orient_weight)
+        new = layout_layer(layer.copy(), below, sizes, k, bridge_weight, orient_weight,
+                           junction=(junctions or {}).get(k))
         for b in new:
             ids[b.i:b.i + b.w, b.j:b.j + b.d, k] = len(bricks)
             bricks.append(b)
         axis[k] = "x" if k % 2 == 0 else "y"
     return BrickModel(bricks, ids, sizes, axis)
+
+
+def junctions_of(model: BrickModel, group_of: List[int]) -> Dict[int, Tuple[np.ndarray, np.ndarray]]:
+    """Per layer: where two neighbouring cells belong to bricks of different groups (lego_engine.analysis)."""
+    g = np.where(model.ids >= 0, np.asarray(list(group_of) + [-1], np.int64)[model.ids], -1)
+    nx, ny, nz = g.shape
+    out = {}
+    for k in range(nz):
+        a = g[:, :, k]
+        jx = np.zeros((nx + 1, ny), bool)
+        jy = np.zeros((nx, ny + 1), bool)
+        jx[1:-1, :] = (a[:-1, :] >= 0) & (a[1:, :] >= 0) & (a[:-1, :] != a[1:, :])
+        jy[:, 1:-1] = (a[:, :-1] >= 0) & (a[:, 1:] >= 0) & (a[:, :-1] != a[:, 1:])
+        if jx.any() or jy.any():
+            out[k] = (jx, jy)
+    return out
+
+
+def layout_connected(occ: np.ndarray, sizes: Iterable[Tuple[int, int]] = DEFAULT_SIZES, max_length: int = 0,
+                     bridge_weight: float = 1.5, orient_weight: float = 0.5, rounds: int = 3) -> BrickModel:
+    """layout_bricks, then up to `rounds` passes that lay the bricks again with a penalty for ending where two groups
+    meet side by side (a thin fin on a block, a joint of a frame: every layer's bricks end at the same place and the
+    two sides only touch). Returns the best pass: fewest floating bricks, then fewest groups, then fewest bricks.
+    Groups that never touch (the parts of an assembly) are left as they are."""
+    from .analysis import connectivity
+    junctions: Dict[int, Tuple[np.ndarray, np.ndarray]] = {}
+    model = layout_bricks(occ, sizes, max_length, bridge_weight, orient_weight)
+    con = connectivity(model)
+    best, best_key = model, (len(con["floating"]), con["groups"], len(model.bricks))
+    for _ in range(rounds):
+        new = junctions_of(model, con["group_of"])
+        if not new:
+            break
+        for k, (jx, jy) in new.items():                  # the boundaries of all passes so far
+            if k in junctions:
+                junctions[k] = (junctions[k][0] | jx, junctions[k][1] | jy)
+            else:
+                junctions[k] = (jx, jy)
+        model = layout_bricks(occ, sizes, max_length, bridge_weight, orient_weight, junctions)
+        con = connectivity(model)
+        key = (len(con["floating"]), con["groups"], len(model.bricks))
+        if key < best_key:
+            best, best_key = model, key
+        if con["groups"] == 1:
+            break
+    return best
 
 
 def check_cover(model: BrickModel, occ: np.ndarray) -> List[str]:

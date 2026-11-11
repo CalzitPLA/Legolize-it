@@ -147,7 +147,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.view.set_result(result, keep_camera=keep)
         self.parts.set_result(result, self.view.colour_mode)
         for a in (self.a_stl, self.a_fc):
-            a.setEnabled(True)
+            a.setEnabled(bool(result.model.bricks))           # nothing to export without bricks
         if not result.stats["stable"]:
             self.say(f"note: {result.stats['floating']} bricks are not connected to the bottom layer (magenta) - "
                      "a lower threshold, a larger size or plates instead of bricks usually connect them")

@@ -1,6 +1,6 @@
 """Voxelization on the brick grid: a cell is pitch x pitch in plan and one layer (a brick or a plate) high.
 
-1. `place()` turns the part so its "up" is +z, scales it (to a number of studs along its longest horizontal side, or by
+1. `place()` turns the part so its "up" is +z, scales it (to a number of studs along its longest side, or by
    a factor; the part's units are taken as mm) and moves it into the grid: centred in x/y, its bottom on the grid's
    floor (z = 0), so a flat bottom fills the first layer exactly.
 2. `fill_fraction()` measures how much of every cell is material: samples^3 points per cell (a regular sub-grid), each
@@ -79,8 +79,9 @@ def place(vertices: np.ndarray, cell: np.ndarray, size_mode: str = "studs", size
     lo, hi = turned.min(axis=0), turned.max(axis=0)
     ext = hi - lo
     if size_mode == "studs":
-        horizontal = max(ext[0], ext[1])
-        reference = horizontal if horizontal > 1e-12 else ext[2]
+        # the longest side in any direction (measured on ABC parts, 2026-11-11: sizing by the longest horizontal side
+        # made a slim upright part 642 layers tall)
+        reference = float(ext.max())
         if reference <= 1e-12 or size <= 0:
             raise ValueError("the part has no extent (or the size is not positive)")
         scale = float(size) * cell[0] / reference
@@ -157,6 +158,21 @@ def surface_cells(vertices: np.ndarray, faces: np.ndarray, grid: Grid, spacing: 
     out = np.zeros(grid.shape, bool)
     out[idx[:, 0], idx[:, 1], idx[:, 2]] = True
     return out
+
+
+THIN_MODES = ("auto", "all", "off")
+
+
+def thin_cells(occ: np.ndarray, touched: np.ndarray) -> np.ndarray:
+    """The cells of thin walls, for thin_walls "auto": surface cells with no cell of `occ` (the fill threshold's cells)
+    among their 26 neighbours - material too thin to fill any cell - plus the surface cells next to those, so a thin
+    fin stays attached to its body. A thick body's own surface cells all lie next to its cells: it does not grow."""
+    from scipy import ndimage
+    st = ndimage.generate_binary_structure(3, 3)
+    seeds = touched & ~ndimage.binary_dilation(occ, structure=st)
+    if not seeds.any():
+        return seeds
+    return seeds | (ndimage.binary_dilation(seeds, structure=st) & touched & ~occ)
 
 
 def occupancy(fraction: np.ndarray, threshold: float = 0.5) -> np.ndarray:

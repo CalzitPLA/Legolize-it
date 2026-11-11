@@ -70,3 +70,13 @@ def test_thin_walls_are_found_by_the_surface(parts):
     assert fill_fraction(v, mesh.faces, grid).max() < 0.5             # 0.4 mm in 3.2 mm cells
     touched = surface_cells(v, mesh.faces, grid)
     assert grid.shape == (10, 8, 1) and touched.all()
+
+
+def test_a_tall_slim_part_is_sized_by_its_height():
+    """Studs along the longest side in any direction: a 5 x 5 x 500 mm rod at 16 studs is 128 mm tall (14 layers),
+    not 16 studs across its 5 mm (which made an ABC part 642 layers tall)."""
+    import trimesh
+    rod = trimesh.creation.box((5, 5, 500))
+    placement, grid = place(rod.vertices, CELL, "studs", 16)
+    assert placement.scale == pytest.approx(16 * 8.0 / 500)
+    assert grid.shape == (1, 1, 14)

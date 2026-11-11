@@ -3,7 +3,7 @@
     python3 packaging/logo/make_logo.py [--samples 384] [--gpu] [--quick]
 
 1. Blender models a Golden Teacher (packaging/logo/golden_teacher.py) -> examples/golden_teacher.{ply,stl,blend};
-2. Legolize it turns it into bricks: 18 studs across the cap, plates, threshold 0.38 (the thin ring and the cap's margin
+2. Legolize it turns it into bricks: scale 2.2568 (18 studs across the cap), plates, threshold 0.38 (the thin ring and the cap's margin
    stay), colours from the painted surface snapped to brick colours -> packaging/logo/build/result.json (+ the STL
    stack and a picture of the window's view, the framework's own outputs);
 3. Blender renders the bricks, not fully built (packaging/logo/render_logo.py) -> packaging/legolize-it.png (1024 px, RGBA)
@@ -24,7 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 LOGO_DIR = ROOT / "packaging" / "logo"
 BUILD = LOGO_DIR / "build"
-LEGO_ARGS = ["--studs", "18", "--unit", "plate", "--threshold", "0.38", "--colours", "source"]
+LEGO_ARGS = ["--scale", "2.2568", "--unit", "plate", "--threshold", "0.38", "--colours", "source"]   # 18 studs across the cap
 
 
 def blender(script: Path, *args: str) -> str:

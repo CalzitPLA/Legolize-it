@@ -9,7 +9,7 @@ Read `README.md` (use, pipeline, limits) and `docs/CODEMAP.md` (modules, data fl
 
 ## Commands (from the repository root)
 
-- Tests: `python3 -m pytest tests -q` (~1 s, the whole suite; the FreeCAD test skips without freecadcmd).
+- Tests: `python3 -m pytest tests -q` (~2 s, the whole suite; the FreeCAD tests skip without freecadcmd).
 - Window: `python3 -m lego_gui [part] [--studs N] [--unit plate] [--run]`; headless check:
   `QT_QPA_PLATFORM=offscreen python3 -m lego_gui part.stl --screenshot out.png` (Qt's offscreen platform has no VTK
   widget; the view then renders the same scene offscreen - `lego_gui/scene.py`, `render_png`).
@@ -29,6 +29,17 @@ Read `README.md` (use, pipeline, limits) and `docs/CODEMAP.md` (modules, data fl
   8-long brick, the joints lined up and the beam's middle floated (5 bricks at 24 studs, 12 at 32). With it: one group,
   0 floating; 0.4-3.3 % more bricks over the frame, the sphere and the mushroom at several sizes. Only the end along a brick's length counts (a crossing brick's
   side always lies on joints below; counting it filled crossing layers with 1x1s).
+- ABC dataset (the user's local copy of chunk 0000 - 500 STEP parts with a `manifest.csv` - next to the thesis
+  material, not in this repository; ask for its folder;
+  check: `python3 scripts/check_parts.py <dir> --sample 40 --seed 11 --stl`). 2026-11-11: 20 parts with both exports
+  and 40 random with the slabs - all fine. What the first pass found and fixed: sheet metal, profiles and slim bars gave
+  no bricks (thin walls now "auto" by default: 25 of 40 parts use it; solid parts are unchanged - tested); the frame
+  joints of an assembly and a fin on a block did not hold (repair passes, `layout_connected`); a small stray body in
+  the lowest layer made the whole model "floating" (the largest group is never floating); sizing by the longest
+  horizontal side made a 25 x 25 x 1219 mm rod 642 layers tall (now the longest side in any direction - the logo is
+  pinned to `--scale 2.2568`, its bricks are unchanged); unbounded STEP surfaces broke the FreeCAD input (now an exact
+  similarity transform, else the tessellated mesh, else left out with a warning); an empty model crashed the CLI's
+  exports (now exit code 2 with a message).
 - FreeCAD: a console FreeCAD has no view objects and FreeCAD 1.x keeps colours in a binary ShapeAppearance record, so
   the colours and the input's transparency go into `<name>_colours.FCMacro` next to the `.FCStd`. In FreeCAD 1.x a
   group's `Shape` is the compound of its children (don't count solids over groups).

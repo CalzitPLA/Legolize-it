@@ -66,22 +66,59 @@ for n, (k, i, j, w, d) in enumerate(job["bricks"]):
     groups[k].addObject(obj)
 
 inp = job.get("input")
+warnings = []
+
+
+def add_mesh(path):
+    import Mesh
+    mesh = Mesh.Mesh(path)
+    mesh.transform(m)
+    obj = doc.addObject("Mesh::Feature", "Input")
+    obj.Mesh = mesh
+    return obj
+
+
 if inp:
     m = App.Matrix(*[float(x) for row in inp["matrix"] for x in row])
+    obj = None
     if inp["kind"] == "step":
-        shape = Part.read(inp["path"]).transformGeometry(m)
-        obj = doc.addObject("Part::Feature", "Input")
-        obj.Shape = shape
+        # the exact shape, moved by the similarity (uniform scale + rotation + shift) without converting its surfaces;
+        # transformGeometry only if that fails (it turns surfaces into B-splines, impossible for infinite ones); the
+        # tessellated mesh if the geometry is unbounded or nothing else works - the input never sinks the document
+        try:
+            shape = Part.read(inp["path"])
+            try:
+                moved = shape.copy()
+                moved.transformShape(m)
+            except Exception:
+                moved = shape.transformGeometry(m)
+            if moved.BoundBox.DiagonalLength > 1000 * job["model_diagonal"]:
+                raise ValueError("the STEP's geometry is unbounded (infinite surfaces)")
+            obj = doc.addObject("Part::Feature", "Input")
+            obj.Shape = moved
+        except Exception as exc:
+            warnings.append("input as a solid failed (%s)" % str(exc).splitlines()[0][:160])
+            if obj is not None:
+                doc.removeObject(obj.Name)
+                obj = None
+            if inp.get("mesh"):
+                try:
+                    obj = add_mesh(inp["mesh"])
+                    warnings.append("the input is the tessellated mesh instead")
+                except Exception as exc2:
+                    warnings.append("input as a mesh failed (%s)" % str(exc2).splitlines()[0][:160])
     else:
-        import Mesh
-        mesh = Mesh.Mesh(inp["path"])
-        mesh.transform(m)
-        obj = doc.addObject("Mesh::Feature", "Input")
-        obj.Mesh = mesh
-    obj.Label = "Input (scaled to the bricks)"
+        try:
+            obj = add_mesh(inp["path"])
+        except Exception as exc:
+            warnings.append("input mesh failed (%s)" % str(exc).splitlines()[0][:160])
+    if obj is not None:
+        obj.Label = "Input (scaled to the bricks)"
+    else:
+        warnings.append("the input is left out of the document")
 
 doc.recompute()
 doc.saveAs(job["out"])
 print("LEGOLIZE_DONE " + json.dumps({"objects": len(doc.Objects), "bricks": len(job["bricks"]),
-                                     "types": len(cache), "file": job["out"]}))
+                                     "types": len(cache), "file": job["out"], "warnings": warnings}))
 sys.stdout.flush()
