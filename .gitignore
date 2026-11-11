@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.blend1
+# remade by packaging/logo/make_logo.py
+packaging/logo/build/

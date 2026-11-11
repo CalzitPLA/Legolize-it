@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Legolize it
+GenericName=Parts into bricks
+Comment=Voxelize an STL/STEP part into stud-and-tube bricks; export to FreeCAD and as an STL stack for 3D printing
+Exec=legolize-it %f
+Icon=legolize-it
+Terminal=false
+Categories=Graphics;3DGraphics;Engineering;
+MimeType=model/stl;model/step;application/sla;
+Keywords=brick;voxel;STL;STEP;FreeCAD;3D printing;
+StartupNotify=true
+StartupWMClass=Legolize it
