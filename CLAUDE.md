@@ -44,4 +44,6 @@ Read `README.md` (use, pipeline, limits) and `docs/CODEMAP.md` (modules, data fl
 - Results are visual: end by showing them (the window, or `--png` / `render_png`), and look at renders before claiming
   they are right.
 - Results and exports go to `~/legolize_results/<part>/` unless asked otherwise.
-- Commit when asked (`git init` done, nothing committed yet).
+- Repository: github.com/CalzitPLA/Legolize-it (public; commits as CalzitPLA with the GitHub noreply address, set in
+  this repository's config). Commit and push when asked; keep personal paths out of published files (Blender
+  files are saved with `bpy.data.libraries.write`, not the main-file save, which stores the file browser's folder).
