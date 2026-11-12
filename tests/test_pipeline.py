@@ -32,15 +32,22 @@ def test_colours_come_from_a_coloured_input(parts):
     r = Legolizer().run(LegoSettings(input=str(parts["two"]), size_mode="scale", size=1.0, colour_mode="source"))
     assert r.source_colours is not None
     red, blue = np.array(PALETTE["red"]), np.array(PALETTE["blue"])
-    checked = 0
     for b, c in zip(r.model.bricks, r.colours()):
-        if b.i + b.w <= 2:                                   # wholly in x < 16: the red box
-            assert np.allclose(c, red)
-            checked += 1
-        elif b.i >= 2:                                       # wholly in x >= 16: the blue box
-            assert np.allclose(c, blue)
-            checked += 1
-    assert checked >= 2
+        # every cell is visible here (two layers thick): a brick is one colour, or - bridging the two halves so the
+        # model holds together - takes one cell of the other colour at most
+        reds = len([a for a in range(b.i, b.i + b.w) if a < 2]) * b.d
+        blues = b.w * b.d - reds
+        assert min(reds, blues) <= 1, f"{b} mixes the two boxes"
+        assert np.allclose(c, red if reds > blues else blue) or reds == blues
+
+
+def test_colour_matching_is_perceptual():
+    """CIELAB, not brightness-weighted RGB: navy is blue, chrome is grey (2026-11-11: they were black and lavender)."""
+    from lego_engine.palette import snap
+    navy, chrome, skin = (0.10, 0.17, 0.38), (0.72, 0.73, 0.75), (0.93, 0.73, 0.60)
+    got = snap(np.array([navy, chrome, skin]))
+    names = {tuple(v): k for k, v in PALETTE.items()}
+    assert [names[tuple(c)] for c in got] == ["dark_blue", "light_grey", "light_nougat"]
 
 
 def test_an_empty_result_says_why(parts):

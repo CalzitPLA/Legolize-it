@@ -19,7 +19,8 @@ def main():
     ap.add_argument("--scale", type=float, default=None, help="scale factor instead of --studs")
     ap.add_argument("--unit", choices=("brick", "plate"), default=None)
     ap.add_argument("--up", default=None, help="the part's up axis: z, y, x, -z, -y, -x")
-    ap.add_argument("--colours", default=None, help="size, layer, mixed, source, single")
+    ap.add_argument("--colours", default=None, help="auto, source, size, layer, mixed, random, rainbow, fade, single")
+    ap.add_argument("--bricks-only", action="store_true", help="start without shaped and special pieces")
     ap.add_argument("--run", action="store_true", help="legolize the part at once")
     ap.add_argument("--window", choices=("normal", "maximized", "full"), default="normal")
     ap.add_argument("--screenshot", default=None, metavar="PNG", help="run, save the 3D view, quit")
@@ -48,6 +49,8 @@ def main():
         s = replace(s, unit=args.unit)
     if args.up:
         s = replace(s, up=args.up)
+    if args.bricks_only:
+        s = replace(s, shapes=(), special=False)
     panel.set_settings(s)
     if args.colours:
         win.view.set_colour_mode(args.colours)
@@ -63,6 +66,7 @@ def main():
     code = app.exec_()
     win.thread.quit()
     win.thread.wait(3000)
+    win.worker.legolizer.release()
     sys.exit(code)
 
 

@@ -9,12 +9,14 @@ Read `README.md` (use, pipeline, limits) and `docs/CODEMAP.md` (modules, data fl
 
 ## Commands (from the repository root)
 
-- Tests: `python3 -m pytest tests -q` (~2 s, the whole suite; the FreeCAD tests skip without freecadcmd).
+- Tests: `python3 -m pytest tests -q` (~10 s, the whole suite; the FreeCAD tests skip without freecadcmd; the server
+  tests use a stand-in for ssh - never the user's hosts).
 - Window: `python3 -m lego_gui [part] [--studs N] [--unit plate] [--run]`; headless check:
   `QT_QPA_PLATFORM=offscreen python3 -m lego_gui part.stl --screenshot out.png` (Qt's offscreen platform has no VTK
   widget; the view then renders the same scene offscreen - `lego_gui/scene.py`, `render_png`).
   The window needs the user's display: start it in the background and let the user look.
-- Command line: `python3 -m lego_engine part.step --studs 24 --unit plate --stl layers --fcstd --out DIR [--png P]`.
+- Command line: `python3 -m lego_engine part.step --studs 24 --unit plate --shapes all --special --stl layers --fcstd
+  --manual --out DIR [--png P] [--server HOST]`; servers: `python3 -m lego_engine.remote list|add|check|sync`.
 - Logo: `python3 packaging/logo/make_logo.py` (~1.5 min; `--quick` for a 512 px look).
 - Installed: `legolize-it`, `legolize-it cli ...`, `legolize-it check`.
 
@@ -40,9 +42,28 @@ Read `README.md` (use, pipeline, limits) and `docs/CODEMAP.md` (modules, data fl
   pinned to `--scale 2.2568`, its bricks are unchanged); unbounded STEP surfaces broke the FreeCAD input (now an exact
   similarity transform, else the tessellated mesh, else left out with a warning); an empty model crashed the CLI's
   exports (now exit code 2 with a message).
-- FreeCAD: a console FreeCAD has no view objects and FreeCAD 1.x keeps colours in a binary ShapeAppearance record, so
-  the colours and the input's transparency go into `<name>_colours.FCMacro` next to the `.FCStd`. In FreeCAD 1.x a
-  group's `Shape` is the compound of its children (don't count solids over groups).
+- FreeCAD: in FreeCAD 1.x a group's `Shape` is the compound of its children (don't count solids over groups). The
+  colour macro next to the `.FCStd` stays as a fallback (FreeCAD 0.2x, or to set the colours again).
+- FreeCAD colours (2026-11-12): `FreeCADGui.setupWithoutGUI()` in freecadcmd still gives no ViewObjects. The export
+  writes GuiDocument.xml + one `ShapeAppearance` file per object (PropertyMaterialList version 3: uint32 count; per
+  material ambient, diffuse, specular, emissive as packed 0xRRGGBBAA uint32 LE, float32 shininess, float32
+  transparency; then 3 empty strings (uint32 0) per material) - byte-identical to freecadcmd's own record (a test).
+  Zip order matters: FreeCAD reads files in the order they were announced, so GuiDocument.xml and its records go after
+  FreeCAD's entries. That the FreeCAD window shows them is the user's check (the rule below).
+- Stud fit (2026-11-12): wall 1.2 / tube 6.51 left 0.3 at the walls and 0 at the tubes; now all from one play
+  (`socket_clearance`, 0.15): wall 1.35, tube 6.2137, post 2.9, socket 5.1. A round corner's outer cell is partly
+  material without a seat: the stud below ran into it (6.8 mm3) until every cell over a stud got a socket.
+  `stacking_check` (manifold3d) and the FreeCAD export's check (OpenCASCADE, 60 pairs): overlap 0, gap 0.15.
+- Shaped pieces (2026-11-12): without the per-cell rule (no cell more than 0.05 worse than its brick) inverted slopes
+  stuck out of a sphere's equator like blades; pieces holding only each other floated (stacked round corners) - they
+  are dropped after the layout. Deviation, bricks -> shaped: sphere 12.9 -> 8.0 % (12 studs), 6.3 -> 3.9 % (24); the
+  mushroom 26 -> 17 % (24); specials add little at tolerance 0.3. Thin-wall cells may be special at >= 10 % material
+  (a cone's tip), sheet metal (4 %) stays bricks.
+- Manual pictures render in the GUI thread (VTK offscreen next to the QVTK widget works on X11, checked on the user's
+  display); LaTeX runs in the worker. Exports clicked during a live update used to be dropped silently ("no manual
+  gets exported", 2026-11-12); they queue now, and STL/FreeCAD exports write the manual too.
+- Servers: only ssh aliases are read (never HostName/User); servers.json lives in ~/.config/legolize-it. A stand-in
+  ssh that sets HOME hides ~/.local packages (the test sets only TMPDIR).
 - Never launch the FreeCAD GUI or an AppImage yourself (the user's rule, also in SHaPe ReCo); "Open in FreeCAD" in the
   window is the user's own action.
 - Debian's Blender 4.3 runs the system Python 3.13 (numpy available), has no OpenImageDenoise and no OptiX: the logo

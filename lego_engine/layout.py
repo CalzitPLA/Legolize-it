@@ -20,7 +20,12 @@ that fit there (free cells only, the catalogue in both orientations) the one wit
 layer but do not hold together, the layout is redone with a penalty for ending on that boundary, so a brick reaches
 across (measured 2026-11-11: a 1 mm fin on a 40 mm block, thin walls "auto": 3 groups -> 1).
 
-The result is exact: every occupied cell is covered by exactly one brick and no brick covers an empty cell
+Shaped and special pieces (lego_engine.shapes) are laid first and stay where they are: `pieces` - (Brick with a
+`kind`, studs (w, d), seats (w, d)) - take their cells before the bricks of their layer are laid around them. Where a
+piece has no stud nothing holds on it, where it has no seat it does not sit on the stud below (`BrickModel.studs`,
+`seats`; for bricks both everywhere).
+
+The result is exact: every occupied cell is covered by exactly one brick or piece and nothing covers an empty cell
 (`check_cover`).
 """
 from __future__ import annotations
@@ -40,10 +45,23 @@ class Brick:
     j: int            # first cell along y
     w: int            # cells along x
     d: int            # cells along y
+    kind: str = ""    # "" a brick; a shaped piece's key (lego_engine.shapes.TYPES); "special"
+    rot: int = 0      # a shaped piece's turn (x 90 degrees about z)
 
     @property
     def name(self) -> str:
-        return size_name(self.w, self.d)
+        if not self.kind:
+            return size_name(self.w, self.d)
+        from .shapes import label
+        return label(self.kind, self.w, self.d)
+
+    @property
+    def is_brick(self) -> bool:
+        return not self.kind
+
+    @property
+    def is_special(self) -> bool:
+        return self.kind == "special"
 
     @property
     def area(self) -> int:
@@ -63,6 +81,9 @@ class BrickModel:
     ids: np.ndarray                   # (nx, ny, nz) int32: index into bricks, -1 = empty
     sizes: Tuple[Tuple[int, int], ...]
     layer_axis: Dict[int, str] = field(default_factory=dict)
+    stud_cells: Optional[np.ndarray] = None     # (nx, ny, nz) bool: a stud on top (None: every occupied cell)
+    seat_cells: Optional[np.ndarray] = None     # (nx, ny, nz) bool: sits on a stud below (None: every occupied cell)
+    special_meshes: Dict[int, Tuple[np.ndarray, np.ndarray]] = field(default_factory=dict)   # brick -> (v, f), mm
 
     @property
     def shape(self) -> Tuple[int, int, int]:
@@ -72,6 +93,18 @@ class BrickModel:
     def occupancy(self) -> np.ndarray:
         return self.ids >= 0
 
+    @property
+    def studs(self) -> np.ndarray:
+        return self.occupancy if self.stud_cells is None else self.stud_cells & self.occupancy
+
+    @property
+    def seats(self) -> np.ndarray:
+        return self.occupancy if self.seat_cells is None else self.seat_cells & self.occupancy
+
+    @property
+    def has_pieces(self) -> bool:
+        return any(b.kind for b in self.bricks)
+
     def layer_bricks(self, k: int) -> List[int]:
         return [n for n, b in enumerate(self.bricks) if b.layer == k]
 
@@ -79,12 +112,8 @@ class BrickModel:
         out: Dict[str, int] = {}
         for b in self.bricks:
             out[b.name] = out.get(b.name, 0) + 1
-        return dict(sorted(out.items(), key=lambda kv: (-_area(kv[0]), kv[0])))
-
-
-def _area(name: str) -> int:
-    a, b = name.split("x")
-    return int(a) * int(b)
+        from .system import name_sort_key
+        return dict(sorted(out.items(), key=lambda kv: name_sort_key(kv[0])))
 
 
 def _orientations(sizes: Iterable[Tuple[int, int]], prefer_x: bool) -> List[Tuple[int, int]]:
@@ -117,11 +146,13 @@ def layout_layer(free: np.ndarray, below: Optional[np.ndarray], sizes: Tuple[Tup
                  bridge_weight: float = 1.5, orient_weight: float = 0.5,
                  seam_weight: Optional[float] = None,
                  junction: Optional[Tuple[np.ndarray, np.ndarray]] = None,
-                 junction_weight: float = 6.0) -> List[Brick]:
+                 junction_weight: float = 6.0, labels: Optional[np.ndarray] = None) -> List[Brick]:
     """Bricks covering the True cells of `free` (nx, ny; consumed). `below`: the brick ids of the layer below or None.
     `seam_weight` (default 1.6 x bridge_weight): the penalty per cell of a brick's far end that lands on a seam below.
     `junction` (jx (nx + 1, ny), jy (nx, ny + 1)): boundaries between groups that did not hold together in an earlier
-    pass (`layout_connected`); a brick ending on one, at either far end, pays `junction_weight` per cell."""
+    pass (`layout_connected`); a brick ending on one, at either far end, pays `junction_weight` per cell.
+    `labels` (nx, ny) int: a colour per cell, -1 for "any" (cells nobody sees), -10 - colour for a visible cell at a
+    junction (`_free_at`); a brick covers one colour only - at a junction it may take one cell of another colour."""
     nx, ny = free.shape
     prefer_x = (k % 2 == 0)
     seam_weight = 1.6 * bridge_weight if seam_weight is None else seam_weight
@@ -150,11 +181,22 @@ def layout_layer(free: np.ndarray, below: Optional[np.ndarray], sizes: Tuple[Tup
         idx = np.flatnonzero(fits)                  # 1x1 always fits; largest first
         best, best_score = None, -1e9
         below_win = below[i:i + reach, j:j + reach] if below is not None else None
+        label_win = labels[i:i + reach, j:j + reach] if labels is not None else None
         for n in idx:
             a = int(area[n])
             if a + bonus_max <= best_score:
                 break                               # sorted by area: no later candidate can win
             w, d = int(W[n]), int(D[n])
+            if label_win is not None and a > 1:
+                lab = label_win[:w, :d].ravel()
+                fixed = lab[lab >= 0]
+                if fixed.size and (fixed != fixed[0]).any():
+                    continue                        # it would mix two colours
+                freed = lab[lab <= -10]
+                if freed.size:                      # at a junction: a bridge takes one cell of another colour at most
+                    both = np.concatenate([fixed, -10 - freed])
+                    if both.size - np.unique(both, return_counts=True)[1].max() > 1:
+                        continue
             score = float(a)
             if below_win is not None:
                 under = below_win[:w, :d]
@@ -182,26 +224,41 @@ def layout_layer(free: np.ndarray, below: Optional[np.ndarray], sizes: Tuple[Tup
 
 def layout_bricks(occ: np.ndarray, sizes: Iterable[Tuple[int, int]] = DEFAULT_SIZES, max_length: int = 0,
                   bridge_weight: float = 1.5, orient_weight: float = 0.5,
-                  junctions: Optional[Dict[int, Tuple[np.ndarray, np.ndarray]]] = None) -> BrickModel:
+                  junctions: Optional[Dict[int, Tuple[np.ndarray, np.ndarray]]] = None,
+                  labels: Optional[np.ndarray] = None, pieces: Optional[list] = None) -> BrickModel:
     """Bricks for every occupied cell of `occ` (nx, ny, nz), layer by layer from the bottom. `junctions`: per layer,
-    boundaries a brick should reach across (see layout_layer)."""
+    boundaries a brick should reach across; `labels` (nx, ny, nz): a colour per cell, -1 = any (see layout_layer);
+    `pieces`: [(Brick, studs, seats)] laid first (their cells must be in `occ`)."""
     sizes = normalise_sizes(sizes, max_length)
     nx, ny, nz = occ.shape
     ids = np.full(occ.shape, -1, np.int32)
     bricks: List[Brick] = []
     axis = {}
+    by_layer: Dict[int, list] = {}
+    for pc in pieces or ():
+        by_layer.setdefault(pc[0].layer, []).append(pc)
+    studs = seats = None
+    if pieces:
+        studs, seats = np.ones(occ.shape, bool), np.ones(occ.shape, bool)
     for k in range(nz):
         layer = occ[:, :, k]
         if not layer.any():
             continue
-        below = ids[:, :, k - 1] if k > 0 else None
-        new = layout_layer(layer.copy(), below, sizes, k, bridge_weight, orient_weight,
-                           junction=(junctions or {}).get(k))
-        for b in new:
-            ids[b.i:b.i + b.w, b.j:b.j + b.d, k] = len(bricks)
+        for b, st, se in by_layer.get(k, ()):
+            sl = (slice(b.i, b.i + b.w), slice(b.j, b.j + b.d), k)
+            ids[sl] = len(bricks)
+            studs[sl], seats[sl] = st, se
             bricks.append(b)
+        below = ids[:, :, k - 1] if k > 0 else None
+        free = layer & (ids[:, :, k] < 0)
+        if free.any():
+            new = layout_layer(free, below, sizes, k, bridge_weight, orient_weight,
+                               junction=(junctions or {}).get(k), labels=None if labels is None else labels[:, :, k])
+            for b in new:
+                ids[b.i:b.i + b.w, b.j:b.j + b.d, k] = len(bricks)
+                bricks.append(b)
         axis[k] = "x" if k % 2 == 0 else "y"
-    return BrickModel(bricks, ids, sizes, axis)
+    return BrickModel(bricks, ids, sizes, axis, studs, seats)
 
 
 def junctions_of(model: BrickModel, group_of: List[int]) -> Dict[int, Tuple[np.ndarray, np.ndarray]]:
@@ -221,14 +278,20 @@ def junctions_of(model: BrickModel, group_of: List[int]) -> Dict[int, Tuple[np.n
 
 
 def layout_connected(occ: np.ndarray, sizes: Iterable[Tuple[int, int]] = DEFAULT_SIZES, max_length: int = 0,
-                     bridge_weight: float = 1.5, orient_weight: float = 0.5, rounds: int = 3) -> BrickModel:
+                     bridge_weight: float = 1.5, orient_weight: float = 0.5, rounds: int = 3,
+                     labels: Optional[np.ndarray] = None, pieces: Optional[list] = None) -> BrickModel:
     """layout_bricks, then up to `rounds` passes that lay the bricks again with a penalty for ending where two groups
     meet side by side (a thin fin on a block, a joint of a frame: every layer's bricks end at the same place and the
     two sides only touch). Returns the best pass: fewest floating bricks, then fewest groups, then fewest bricks.
-    Groups that never touch (the parts of an assembly) are left as they are."""
+    Groups that never touch (the parts of an assembly) are left as they are. With `labels` (one colour per brick) the
+    repair passes free the colour of the cells on both sides of such a boundary: there a brick may bridge two colours
+    with one cell of the other colour at most (it takes the colour most of its cells have) - measured 2026-11-11 on a
+    squirrel whose cream belly runs up through many layers: with the colour rule kept everywhere it fell apart into 5
+    groups; with any mix allowed at the freed cells, the passes freed more cells each round and a 4-long brick lay
+    half red, half blue (2026-11-12)."""
     from .analysis import connectivity
     junctions: Dict[int, Tuple[np.ndarray, np.ndarray]] = {}
-    model = layout_bricks(occ, sizes, max_length, bridge_weight, orient_weight)
+    model = layout_bricks(occ, sizes, max_length, bridge_weight, orient_weight, labels=labels, pieces=pieces)
     con = connectivity(model)
     best, best_key = model, (len(con["floating"]), con["groups"], len(model.bricks))
     for _ in range(rounds):
@@ -240,7 +303,8 @@ def layout_connected(occ: np.ndarray, sizes: Iterable[Tuple[int, int]] = DEFAULT
                 junctions[k] = (junctions[k][0] | jx, junctions[k][1] | jy)
             else:
                 junctions[k] = (jx, jy)
-        model = layout_bricks(occ, sizes, max_length, bridge_weight, orient_weight, junctions)
+        model = layout_bricks(occ, sizes, max_length, bridge_weight, orient_weight, junctions,
+                              _free_at(labels, junctions), pieces)
         con = connectivity(model)
         key = (len(con["floating"]), con["groups"], len(model.bricks))
         if key < best_key:
@@ -250,13 +314,32 @@ def layout_connected(occ: np.ndarray, sizes: Iterable[Tuple[int, int]] = DEFAULT
     return best
 
 
+def _free_at(labels: Optional[np.ndarray], junctions: Dict[int, Tuple[np.ndarray, np.ndarray]]) -> Optional[np.ndarray]:
+    """`labels` with the visible cells on both sides of every junction marked as freed (-10 - their colour)."""
+    if labels is None:
+        return None
+    out = labels.copy()
+
+    def free(a, q, k):
+        out[a, q, k] = np.where(out[a, q, k] >= 0, -10 - out[a, q, k], out[a, q, k])
+
+    for k, (jx, jy) in junctions.items():
+        a, q = np.nonzero(jx)                            # boundary between cells a - 1 and a along x
+        free(a - 1, q, k)
+        free(a, q, k)
+        a, q = np.nonzero(jy)
+        free(a, q - 1, k)
+        free(a, q, k)
+    return out
+
+
 def check_cover(model: BrickModel, occ: np.ndarray) -> List[str]:
     """Problems of the cover (an empty list when every occupied cell has exactly one brick and nothing else does)."""
     problems = []
     count = np.zeros(occ.shape, np.int32)
     allowed = set(model.sizes)
     for n, b in enumerate(model.bricks):
-        if tuple(sorted((b.w, b.d))) not in allowed:
+        if b.is_brick and tuple(sorted((b.w, b.d))) not in allowed:
             problems.append(f"brick {n} {b.name} is not in the catalogue")
         sl = (slice(b.i, b.i + b.w), slice(b.j, b.j + b.d), b.layer)
         count[sl] += 1

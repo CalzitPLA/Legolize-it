@@ -4,3 +4,7 @@ __pycache__/
 *.blend1
 # remade by packaging/logo/make_logo.py
 packaging/logo/build/
+# local settings - never in the repository (servers live in ~/.config/legolize-it/)
+servers.json
+*.local.json
+.env

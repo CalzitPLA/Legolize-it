@@ -1,5 +1,7 @@
 """The 3D view: lego_gui.scene in a Qt widget, with its bar - the layers (input translucent, bricks opaque, voxels),
-the colours, a slider that builds the stack up layer by layer, the camera presets and a screenshot.
+the colours (with the fade preset or the single colour), a slider that builds the stack up layer by layer, the camera
+presets and a screenshot - and below it the resolution: studs along the longest side, coarse to fine, which redoes the
+model (`resolutionChanged`).
 
 Without a result it shows the logo. Degrades to a text note without VTK/OpenGL (or with LEGOLIZE_NO_3D set).
 """
@@ -11,15 +13,19 @@ from typing import Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from lego_engine.palette import MODES as COLOUR_MODES
+from lego_engine.palette import FADES, MODES as COLOUR_MODES, NAMES
 
 ROOT = Path(__file__).resolve().parent.parent
 LOGO = ROOT / "packaging" / "legolize-it.png"
-COLOUR_LABELS = {"size": "by size", "layer": "by layer", "mixed": "mixed", "source": "from the input", "single": "one colour"}
+COLOUR_LABELS = {"auto": "auto (the input's if any)", "source": "from the input", "size": "by size",
+                 "layer": "by layer", "mixed": "mixed", "random": "random", "rainbow": "rainbow", "fade": "fade",
+                 "single": "one colour"}
+RESOLUTION = (2, 160)                  # studs along the longest side, the slider's range
 
 
 class BrickView(QtWidgets.QWidget):
     colourModeChanged = QtCore.pyqtSignal(str)
+    resolutionChanged = QtCore.pyqtSignal(float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -52,6 +58,19 @@ class BrickView(QtWidgets.QWidget):
             self.colour.addItem(COLOUR_LABELS[m], m)
         self.colour.currentIndexChanged.connect(self._colour_changed)
         bar.addWidget(self.colour)
+        self.fade = QtWidgets.QComboBox()
+        for name in FADES:
+            self.fade.addItem(name, name)
+        self.fade.setToolTip("the gradient from the bottom to the top (snapped to brick colours)")
+        self.fade.currentIndexChanged.connect(self._colour_changed)
+        bar.addWidget(self.fade)
+        self.single = QtWidgets.QComboBox()
+        for name in NAMES:
+            self.single.addItem(name.replace("_", " "), name)
+        self.single.currentIndexChanged.connect(self._colour_changed)
+        bar.addWidget(self.single)
+        self.fade.hide()
+        self.single.hide()
         bar.addSpacing(10)
         bar.addWidget(QtWidgets.QLabel("Layers"))
         self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
@@ -76,6 +95,32 @@ class BrickView(QtWidgets.QWidget):
         holder = QtWidgets.QWidget()
         holder.setLayout(bar)
         layout.addWidget(holder)
+
+        row = QtWidgets.QHBoxLayout()
+        row.setContentsMargins(6, 0, 6, 0)
+        row.addWidget(QtWidgets.QLabel("Resolution"))
+        row.addWidget(QtWidgets.QLabel("coarse"))
+        self.resolution = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.resolution.setRange(*RESOLUTION)
+        self.resolution.setValue(16)
+        self.resolution.setToolTip("studs along the part's longest side: fewer - a coarse, blocky likeness; more - a "
+                                   "finer one with more bricks (the model is redone as you go)")
+        self.resolution.valueChanged.connect(self._resolution_moved)
+        row.addWidget(self.resolution, 1)
+        row.addWidget(QtWidgets.QLabel("fine"))
+        self.res_spin = QtWidgets.QSpinBox()
+        self.res_spin.setRange(1, 1000)
+        self.res_spin.setValue(16)
+        self.res_spin.setSuffix(" studs")
+        self.res_spin.setKeyboardTracking(False)
+        self.res_spin.valueChanged.connect(self._resolution_typed)
+        row.addWidget(self.res_spin)
+        self.res_label = QtWidgets.QLabel("")
+        self.res_label.setMinimumWidth(240)
+        row.addWidget(self.res_label)
+        holder2 = QtWidgets.QWidget()
+        holder2.setLayout(row)
+        layout.addWidget(holder2)
 
         self.stack = QtWidgets.QStackedWidget()
         self.logo = QtWidgets.QLabel()
@@ -128,6 +173,42 @@ class BrickView(QtWidgets.QWidget):
     def colour_mode(self) -> str:
         return self.colour.currentData()
 
+    @property
+    def colour_options(self) -> dict:
+        """The colour choice as keyword arguments of LegoResult.colours: mode, fade, single."""
+        return {"mode": self.colour_mode, "fade": self.fade.currentData(), "single": self.single.currentData()}
+
+    def set_colour_options(self, fade: Optional[str] = None, single: Optional[str] = None):
+        for box, value in ((self.fade, fade), (self.single, single)):
+            if value is not None and box.findData(value) >= 0:
+                box.blockSignals(True)
+                box.setCurrentIndex(box.findData(value))
+                box.blockSignals(False)
+
+    # ------------------------------------------------------------------------------------------------ resolution
+    def set_resolution(self, studs: Optional[float], text: str = ""):
+        """Show the size (studs along the longest side; None for a scale factor) without emitting a change."""
+        for w in (self.resolution, self.res_spin):
+            w.blockSignals(True)
+        if studs is not None:
+            self.resolution.setValue(int(round(min(max(studs, RESOLUTION[0]), RESOLUTION[1]))))
+            self.res_spin.setValue(int(round(studs)))
+        for w in (self.resolution, self.res_spin):
+            w.blockSignals(False)
+        self.res_label.setText(text)
+
+    def _resolution_moved(self, v: int):
+        self.res_spin.blockSignals(True)
+        self.res_spin.setValue(v)
+        self.res_spin.blockSignals(False)
+        self.resolutionChanged.emit(float(v))
+
+    def _resolution_typed(self, v: int):
+        self.resolution.blockSignals(True)
+        self.resolution.setValue(min(max(v, RESOLUTION[0]), RESOLUTION[1]))
+        self.resolution.blockSignals(False)
+        self.resolutionChanged.emit(float(v))
+
     def set_colour_mode(self, mode: str):
         i = self.colour.findData(mode)
         if i >= 0:
@@ -145,7 +226,8 @@ class BrickView(QtWidgets.QWidget):
             self._render()
             return
         first = self.scene.result is None or not keep_camera
-        self.scene.set_result(result, self.colour_mode, self.mark_floating.isChecked())
+        o = self.colour_options
+        self.scene.set_result(result, o["mode"], self.mark_floating.isChecked(), fade=o["fade"], single=o["single"])
         for name, box in self.checks.items():
             self.scene.visible[name] = box.isChecked()
         layers = self.scene.layer_index
@@ -167,6 +249,8 @@ class BrickView(QtWidgets.QWidget):
             self.slider.setValue(limit)
 
     def _colour_changed(self, _i):
+        self.fade.setVisible(self.colour_mode == "fade")
+        self.single.setVisible(self.colour_mode == "single")
         self.colourModeChanged.emit(self.colour_mode)
         self.redraw()
 
@@ -199,7 +283,8 @@ class BrickView(QtWidgets.QWidget):
             if self.result is None:
                 return None
             from lego_gui.scene import render_png
-            return render_png(self.result, path, colour_mode=self.colour_mode,
+            o = self.colour_options
+            return render_png(self.result, path, colour_mode=o["mode"], fade=o["fade"], single=o["single"],
                               show_input=self.checks["input"].isChecked())
         from vtkmodules.vtkIOImage import vtkPNGWriter
         from vtkmodules.vtkRenderingCore import vtkWindowToImageFilter

@@ -117,6 +117,7 @@ cat > "$BIN/legolize-it" <<LAUNCHER
 #   legolize-it [part.stl|part.step] [--studs N] [--unit plate] [--run]   the window (legolize-it --help-window)
 #   legolize-it cli part.step --studs 24 --stl layers --fcstd --out DIR   the command line (legolize-it cli --help)
 #   legolize-it check                                                     check this installation
+#   legolize-it server list|add HOST PATH|check HOST|sync HOST            runs on servers over ssh
 ROOT="$ROOT"
 PY="$VENV/bin/python"
 export PYTHONPATH="\$ROOT\${PYTHONPATH:+:\$PYTHONPATH}"
@@ -124,8 +125,9 @@ export RESOURCE_NAME=legolize-it      # the window's WM_CLASS instance = the des
 case "\${1:-}" in
   cli) shift; exec "\$PY" -m lego_engine "\$@" ;;
   check) exec "\$ROOT/install.sh" --check --venv "$VENV" ;;
+  server) shift; exec "\$PY" -m lego_engine.remote "\$@" ;;
   --help-window) exec "\$PY" -m lego_gui --help ;;
-  -h|--help) sed -n '3,5p' "\$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '3,6p' "\$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 exec "\$PY" -m lego_gui "\$@"
 LAUNCHER

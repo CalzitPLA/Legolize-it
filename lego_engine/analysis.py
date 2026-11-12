@@ -1,7 +1,8 @@
 """What holds and what does not, and the numbers of a brick model.
 
 Bricks hold together only through studs: two bricks are connected when they are in neighbouring layers and their
-footprints share at least one cell. Bricks side by side in one layer are not connected. A group of connected bricks
+footprints share at least one cell where the lower one has a stud and the upper one a seat (a brick has both on every
+cell; a curved slope has no stud, an inverted slope no seat under its fall - lego_engine.shapes). Bricks side by side in one layer are not connected. A group of connected bricks
 that does not reach the lowest layer is floating - it has nothing under it (it would fall off when built). The largest
 group is the model itself and never floating: when a small stray body is the only thing in the lowest layer (seen on
 ABC parts with several bodies, 2026-11-11: 38 of 41 bricks were "floating"), the model still stands on its own bottom.
@@ -40,9 +41,10 @@ def connectivity(model: BrickModel) -> Dict:
         return {"groups": 0, "largest": 0, "floating": [], "group_of": []}
     uf = _UnionFind(n)
     ids = model.ids
+    studs, seats = model.studs, model.seats
     for k in range(1, ids.shape[2]):
         a, b = ids[:, :, k], ids[:, :, k - 1]
-        both = (a >= 0) & (b >= 0)
+        both = (a >= 0) & (b >= 0) & seats[:, :, k] & studs[:, :, k - 1]
         if both.any():
             for x, y in set(zip(a[both].tolist(), b[both].tolist())):
                 uf.union(x, y)
@@ -81,8 +83,10 @@ def stats(model: BrickModel, system: BrickSystem, unit: str) -> Dict:
     above[:, :, :-1] = occ[:, :, 1:]
     return {
         "bricks": len(model.bricks),
+        "shaped": sum(1 for b in model.bricks if b.kind and not b.is_special),
+        "special": sum(1 for b in model.bricks if b.is_special),
         "cells": int(occ.sum()),
-        "studs_visible": int((occ & ~above).sum()),
+        "studs_visible": int((model.studs & ~above).sum()),
         "layers": len(layers),
         "grid": [int(x) for x in occ.shape],
         "size_mm": [round(occ.shape[0] * system.pitch, 2), round(occ.shape[1] * system.pitch, 2),

@@ -115,7 +115,8 @@ class Scene:
         self.input.VisibilityOff()
         self.voxels.VisibilityOff()
 
-    def set_result(self, result, colour_mode: Optional[str] = None, mark_floating: bool = True):
+    def set_result(self, result, colour_mode: Optional[str] = None, mark_floating: bool = True,
+                   fade: Optional[str] = None, single: Optional[str] = None):
         from lego_engine.analysis import connectivity
         from lego_engine.geometry import bricks_display, voxel_mesh
         self.clear()
@@ -124,7 +125,7 @@ class Scene:
         vv, vf = voxel_mesh(result.occupancy, result.grid, shrink=0.3)
         if len(vf):
             self.voxels.GetMapper().SetInputData(polydata(vv, vf))
-        colours = jitter(result.colours(colour_mode))
+        colours = jitter(result.colours(colour_mode, fade, single))
         if mark_floating:
             for n in connectivity(result.model)["floating"]:
                 colours[n] = FLOATING
@@ -148,6 +149,16 @@ class Scene:
         hi = np.maximum(result.placed_vertices.max(0), result.grid.origin + result.grid.size)
         self.bounds = (lo, hi)
         self.apply()
+
+    def dim_except(self, layer: Optional[int], amount: float = 0.5):
+        """The layers below `layer` pale and flat, so the bricks of `layer` stand out (None: all as usual)."""
+        for k, actor in zip(self.layer_index, self.layers):
+            prop = actor.GetProperty()
+            dim = layer is not None and k < layer
+            prop.SetAmbient(amount if dim else 0.12)
+            prop.SetDiffuse(1.0 - amount if dim else 0.85)
+            prop.SetSpecular(0.0 if dim else 0.35)
+            prop.SetOpacity(0.45 if dim else 1.0)
 
     def set_visible(self, name: str, on: bool):
         self.visible[name] = bool(on)
@@ -188,7 +199,8 @@ class Scene:
 
 
 def render_png(result, path, size=(1280, 960), colour_mode: Optional[str] = None, view: str = "iso",
-               limit: Optional[int] = None, show_input: bool = True):
+               limit: Optional[int] = None, show_input: bool = True, fade: Optional[str] = None,
+               single: Optional[str] = None, highlight=None, background=None):
     """An offscreen picture of the result (as the window draws it) -> path."""
     from pathlib import Path
     import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
@@ -202,7 +214,11 @@ def render_png(result, path, size=(1280, 960), colour_mode: Optional[str] = None
     renderer = vtkRenderer()
     window.AddRenderer(renderer)
     scene = Scene(renderer)
-    scene.set_result(result, colour_mode)
+    scene.set_result(result, colour_mode, fade=fade, single=single)
+    if background is not None:
+        renderer.SetBackground(*background)
+    if highlight is not None:                    # the building manual: this step's bricks bright, the rest dimmed
+        scene.dim_except(highlight)
     scene.visible["input"] = show_input
     scene.set_limit(limit)
     scene.view(view)
@@ -219,3 +235,71 @@ def render_png(result, path, size=(1280, 960), colour_mode: Optional[str] = None
     writer.Write()
     window.Finalize()
     return path
+
+
+def render_steps(result, out_dir, size=(900, 760), colours=None, prefix: str = "step", progress=None):
+    """Offscreen pictures of the build, one per layer (the model up to that layer, the layer bright, the ones below
+    pale), all from the same iso camera; plus "<prefix>_final.png". -> {layer: path, "final": path}."""
+    from pathlib import Path
+    import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
+    from vtkmodules.vtkIOImage import vtkPNGWriter
+    from vtkmodules.vtkRenderingCore import vtkRenderer, vtkRenderWindow, vtkWindowToImageFilter
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    window = vtkRenderWindow()
+    window.SetOffScreenRendering(1)
+    window.SetMultiSamples(0)
+    window.SetSize(*size)
+    renderer = vtkRenderer()
+    window.AddRenderer(renderer)
+    scene = Scene(renderer)
+    scene.set_result(result, mark_floating=False)
+    if colours is not None:                                  # the colours of the export (the view's choice)
+        from vtkmodules.util import numpy_support
+        cols = jitter(np.asarray(colours, float))
+        for k, actor in zip(scene.layer_index, scene.layers):
+            idx = result.model.layer_bricks(k)
+            from lego_engine.geometry import bricks_display
+            _v, _f, owner = bricks_display(result.model, result.grid, result.system, idx)
+            arr = numpy_support.numpy_to_vtk(np.ascontiguousarray((np.clip(cols[owner], 0, 1) * 255).astype(np.uint8)),
+                                             deep=True)
+            arr.SetName("colours")
+            actor.GetMapper().GetInput().GetCellData().SetScalars(arr)
+        for k, cap in zip(scene.layer_index, scene.caps):
+            if cap is not None:
+                idx = result.model.layer_bricks(k)
+                from lego_engine.geometry import bricks_display
+                _v, _f, owner = bricks_display(result.model, result.grid, result.system, idx, studs="covered",
+                                               bodies=False)
+                arr = numpy_support.numpy_to_vtk(
+                    np.ascontiguousarray((np.clip(cols[owner], 0, 1) * 255).astype(np.uint8)), deep=True)
+                arr.SetName("colours")
+                cap.GetMapper().GetInput().GetCellData().SetScalars(arr)
+    scene.visible["input"] = False
+    renderer.SetBackground(1.0, 1.0, 1.0)
+    scene.set_limit(None)
+    scene.view("iso")
+    grab = vtkWindowToImageFilter()
+    grab.SetInput(window)
+    grab.ReadFrontBufferOff()
+    writer = vtkPNGWriter()
+    writer.SetInputConnection(grab.GetOutputPort())
+    out = {}
+
+    def shoot(path):
+        window.Render()
+        grab.Modified()
+        grab.Update()
+        writer.SetFileName(str(path))
+        writer.Write()
+        return path
+
+    out["final"] = shoot(out_dir / f"{prefix}_final.png")
+    for k in scene.layer_index:
+        scene.set_limit(k)
+        scene.dim_except(k)
+        out[k] = shoot(out_dir / f"{prefix}_{k:03d}.png")
+        if progress:
+            progress(f"picture of layer {k}")
+    window.Finalize()
+    return out
