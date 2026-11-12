@@ -56,9 +56,15 @@ Read `README.md` (use, pipeline, limits) and `docs/CODEMAP.md` (modules, data fl
   `stacking_check` (manifold3d) and the FreeCAD export's check (OpenCASCADE, 60 pairs): overlap 0, gap 0.15.
 - Shaped pieces (2026-11-12): without the per-cell rule (no cell more than 0.05 worse than its brick) inverted slopes
   stuck out of a sphere's equator like blades; pieces holding only each other floated (stacked round corners) - they
-  are dropped after the layout. Deviation, bricks -> shaped: sphere 12.9 -> 8.0 % (12 studs), 6.3 -> 3.9 % (24); the
-  mushroom 26 -> 17 % (24); specials add little at tolerance 0.3. Thin-wall cells may be special at >= 10 % material
+  are dropped after the layout. min_gain 0.2 (0.12 filled half-filled cells of flat faces with 1x1 round corners).
+  Deviation, bricks -> shaped: sphere 12.9 -> 8.8 % (12 studs), 6.3 -> 4.4 % (24); the mushroom 26 -> 19 % (24); specials add little at tolerance 0.3. Thin-wall cells may be special at >= 10 % material
   (a cone's tip), sheet metal (4 %) stays bricks.
+- Pieces must belong to a group with bricks (2026-11-12): special pieces along a cylinder's round bottom edge had too
+  little material at their faces for a stud and stood alone on the ground - "9 groups, 0 floating" on the capsule
+  example; now dropped like floating pieces. Example inputs whose depth is not whole studs put flat faces mid-cell
+  (a sign 2.07 studs deep: 35 % deviation, 1.4 % at exactly 2) - make such inputs whole studs deep.
+- README pictures (docs/images/) and the example manuals (examples/manuals/) are made from the repository's own
+  examples (the mushroom, examples/capsule.step) - the commands are in the README.
 - Manual pictures render in the GUI thread (VTK offscreen next to the QVTK widget works on X11, checked on the user's
   display); LaTeX runs in the worker. Exports clicked during a live update used to be dropped silently ("no manual
   gets exported", 2026-11-12); they queue now, and STL/FreeCAD exports write the manual too.

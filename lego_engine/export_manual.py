@@ -76,6 +76,8 @@ def _plan(model, k: int, colours: np.ndarray, unit_cm: float, special_no: Dict[i
     for n in model.layer_bricks(k):
         b = model.bricks[n]
         col = _tex_colour_id(colours[n])
+        dark = float(np.dot(colours[n][:3], (0.299, 0.587, 0.114))) < 0.4       # marks in white on dark bricks
+        ink, stud_ink = ("white", "white!70!black") if dark else ("black!80", "black!55")
         x0, y0, x1, y1 = b.i + 0.06, b.j + 0.06, b.i + b.w - 0.06, b.j + b.d - 0.06
         t = TYPES.get(b.kind)
         if t is not None and t.form in ("quarter", "dome"):           # a quarter disk around its corner
@@ -97,13 +99,13 @@ def _plan(model, k: int, colours: np.ndarray, unit_cm: float, special_no: Dict[i
             for a in range(b.i, b.i + b.w):
                 for q in range(b.j, b.j + b.d):
                     if studs[a, q, k]:
-                        lines.append(rf"\draw[black!55, line width=0.4pt] ({a + 0.5},{q + 0.5}) circle (0.3);")
+                        lines.append(rf"\draw[{stud_ink}, line width=0.4pt] ({a + 0.5},{q + 0.5}) circle (0.3);")
         elif t is not None and studs[b.i:b.i + b.w, b.j:b.j + b.d, k].any():
-            lines.append(rf"\draw[black!55, line width=0.4pt] ({b.i + b.w / 2},{b.j + b.d / 2}) circle (0.3);")
+            lines.append(rf"\draw[{stud_ink}, line width=0.4pt] ({b.i + b.w / 2},{b.j + b.d / 2}) circle (0.3);")
         arrow = _fall_arrow(b)
         if arrow:
             dash = ", dashed" if t.inverted else ""
-            lines.append(rf"\draw[-{{Stealth[length=4pt]}}, line width=0.9pt, black!80{dash}] ({arrow[0]:.2f},"
+            lines.append(rf"\draw[-{{Stealth[length=4pt]}}, line width=0.9pt, {ink}{dash}] ({arrow[0]:.2f},"
                          rf"{arrow[1]:.2f}) -- ({arrow[2]:.2f},{arrow[3]:.2f});")
         if b.is_special:
             lines.append(rf"\node[font=\tiny\bfseries, fill=white, inner sep=1pt] at ({b.i + b.w / 2:.2f},"
@@ -160,7 +162,7 @@ def write_manual(result, out_dir, colours: Optional[np.ndarray] = None, title: O
             say(f"no pictures ({str(exc).splitlines()[0][:120]}): the manual has the plans only")
             images = {}
     nx, ny = grid.shape[0], grid.shape[1]
-    unit = min(0.75, 15.5 / max(nx, ny))
+    unit = min(0.6, 8.4 / max(nx, ny))             # the plan beside the picture: at most 8.4 cm
     st = result.stats
     fit = system.fit()
     used = sorted({_tex_colour_id(c): c for c in cols}.items())
@@ -204,15 +206,23 @@ def write_manual(result, out_dir, colours: Optional[np.ndarray] = None, title: O
         doc.append(r"\clearpage")
         doc.append(rf"\section*{{Step {s_no} \normalfont\large(layer {k}, z = {k * grid.cell[2]:g}\,mm, "
                    rf"{len(idx)} parts)}}")
-        doc.append(r"\begin{minipage}[t]{0.58\textwidth}\vspace{0pt}")
+        # the picture and the plan side by side, the parts below in up to three columns (2026-11-12: with the parts
+        # beside the picture, a step of 58 parts pushed its plan onto the next page)
+        doc.append(r"\begin{minipage}[c]{0.5\textwidth}")
         if images.get(k):
             doc.append(rf"\includegraphics[width=\linewidth]{{img/{Path(images[k]).name}}}")
-        doc.append(r"\end{minipage}\hfill\begin{minipage}[t]{0.38\textwidth}\vspace{0pt}\small")
-        doc.append(_parts_table(_group(model, idx, cols, names), with_total=False))
-        doc.append(r"\end{minipage}\par\vspace{4mm}")
-        doc.append(r"\begin{center}")
+        doc.append(r"\end{minipage}\hfill\begin{minipage}[c]{0.48\textwidth}\centering")
         doc.append(_plan(model, k, cols, unit, special_no))
-        doc.append(r"\end{center}")
+        doc.append(r"\end{minipage}\par\vspace{5mm}")
+        rows = _group(model, idx, cols, names)
+        ncol = 1 if len(rows) <= 14 else 2 if len(rows) <= 40 else 3
+        per = -(-len(rows) // ncol)
+        chunks = [rows[q:q + per] for q in range(0, len(rows), per)]
+        width = {1: 0.49, 2: 0.49, 3: 0.32}[ncol]
+        doc.append(r"{\scriptsize\noindent" if ncol == 3 else r"{\small\noindent")
+        doc.append(r"\hfill".join(rf"\begin{{minipage}}[t]{{{width}\textwidth}}" + _parts_table(c, with_total=False) +
+                                   r"\end{minipage}" for c in chunks))
+        doc.append(r"\par}")
     if special_no:
         doc += [r"\clearpage", r"\section*{Special pieces}",
                 r"Print each from \texttt{bricks/} of the STL stack; the studs and sockets sit where it joins the "

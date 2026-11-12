@@ -280,13 +280,19 @@ class Legolizer:
 
     @staticmethod
     def _drop_floating_pieces(model, occ, base_occ, pieces, sizes, settings, labels, rounds: int = 2):
-        """Pieces in floating groups (they hold only on each other, or on nothing) go: their cells become bricks again
-        (the cells a piece added become empty) and the bricks are laid again. Returns (model, occ, pieces dropped)."""
+        """Pieces that do not hold go: those in floating groups, and those in groups without a single brick (they hold
+        only on each other, or stand alone on the ground - 2026-11-12: the special pieces along a cylinder's round
+        bottom edge, too little material at their faces for a stud, were 8 "groups" of one piece each). Their cells
+        become bricks again (the cells a piece added become empty) and the bricks are laid again. Returns (model, occ,
+        pieces dropped)."""
         from .analysis import connectivity
         dropped = 0
         for _ in range(rounds):
-            floating = set(connectivity(model)["floating"])
-            gone = {(b.layer, b.i, b.j, b.kind) for n, b in enumerate(model.bricks) if b.kind and n in floating}
+            con = connectivity(model)
+            floating = set(con["floating"])
+            with_bricks = {g for g, b in zip(con["group_of"], model.bricks) if b.is_brick}
+            gone = {(b.layer, b.i, b.j, b.kind) for n, b in enumerate(model.bricks)
+                    if b.kind and (n in floating or (with_bricks and con["group_of"][n] not in with_bricks))}
             if not gone:
                 break
             keep = []

@@ -16,7 +16,7 @@ along +x, +y, -x, -y.
 Which pieces (`fit_pieces`): every cell near the surface is measured finely (`fine_samples`: 6 x 6 x 6 points, inside
 by winding number); a piece at a place costs the points where it and the part disagree, the bricks it replaces cost the
 same (an occupied cell: its empty points; an empty cell: its material). A piece is laid where it saves the most
-(at least `min_gain` cells), greedily, if
+(at least `min_gain` = 0.2 cells), greedily, if
     - nothing sits on a cell of it without a stud (its curved top) - and nothing hangs under an inverted piece's fall;
     - it holds: on a stud below, or under something above its studs (the stud-and-tube rule, as for bricks).
 The bricks are laid around the pieces afterwards (lego_engine.layout).
@@ -266,12 +266,14 @@ def types_for(families: Sequence[str]) -> List[PieceType]:
 
 
 def fit_pieces(fine: FineSamples, occ: np.ndarray, allowed: np.ndarray, families: Sequence[str],
-               min_gain: float = 0.12, slack: float = 0.05, seat_min: float = 0.0) -> Fit:
+               min_gain: float = 0.2, slack: float = 0.05, seat_min: float = 0.0) -> Fit:
     """Choose shaped pieces (see the module docstring). `occ`: the cells that would be bricks; `allowed`: the cells a
     piece may cover (not thin-wall cells, not the inside of a hollow model). A piece must save `min_gain` cells in all
     and may not make any of its cells worse than the brick (or gap) there by more than `slack` of a cell - measured
     2026-11-12 on a sphere: without that rule inverted slopes won by their good cell while their thin end stuck out
-    of the equator like a blade."""
+    of the equator like a blade. min_gain 0.2, not 0.12: at 0.12, 1x1 round corners filled every half-filled cell of
+    flat faces that fall mid-cell (2094 of them on an upright sign); at 0.2, 24 studs: sphere 4.4 % deviation with 861
+    parts (0.12: 3.9 %, 1041), the mushroom 18.7 % / 6 groups (17.6 % / 8), a text sign 215 parts (265)."""
     from .layout import Brick
     nx, ny, nz = occ.shape
     taken = np.zeros(occ.shape, bool)

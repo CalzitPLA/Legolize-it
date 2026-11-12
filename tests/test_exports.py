@@ -90,7 +90,7 @@ def test_result_json_names_the_pieces(shaped, tmp_path):
     d = json.loads(shaped.save_json(tmp_path / "r.json").read_text())
     assert len(d["bricks"]) == len(d["kinds"]) == len(d["turns"])
     assert all(len(b) == 5 for b in d["bricks"])                       # the logo's reader takes plain lists
-    assert "special" in d["kinds"] and any(k.startswith("curve") for k in d["kinds"])
+    assert "special" in d["kinds"] and any(k not in ("", "special") for k in d["kinds"])
 
 
 @pytest.mark.skipif(find_freecadcmd() is None, reason="needs freecadcmd")

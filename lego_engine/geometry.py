@@ -292,11 +292,12 @@ def input_solid(vertices: np.ndarray, faces: np.ndarray):
         return m if m.status() == mf.Error.NoError and not m.is_empty() else None
 
     try:
-        m = one(vertices, faces)
-        if m is not None:
-            return m
         import trimesh
         bodies = trimesh.Trimesh(vertices, faces, process=True).split(only_watertight=False)
+        if len(bodies) <= 1:
+            return one(vertices, faces)
+        # several bodies (an assembly, letters on a plinth): each closed on its own, then their union - one manifold
+        # of bodies that overlap or touch would be self-intersecting, and the cuts of special pieces undefined
         parts = [one(b.vertices, b.faces) for b in bodies]
         if not parts or any(x is None for x in parts):
             return None

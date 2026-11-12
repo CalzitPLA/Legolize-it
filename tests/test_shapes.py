@@ -64,9 +64,9 @@ def test_shaped_pieces_round_a_sphere(parts):
     shaped = lz.run(LegoSettings(input=str(parts["sphere"]), size=12, shapes=ALL))
     assert shaped.stats["shaped"] > 20 and not check_cover(shaped.model, shaped.occupancy)
     assert shaped.stats["stable"]
-    assert shaped.stats["deviation"] < 0.8 * plain.stats["deviation"]     # measured: 12.9 % -> 8.0 %
-    kinds = {b.kind for b in shaped.model.bricks}
-    assert any(k.startswith("curve") for k in kinds) and any(k.startswith("i") for k in kinds)
+    assert shaped.stats["deviation"] < 0.8 * plain.stats["deviation"]     # measured: 12.9 % -> 8.8 %
+    kinds = {b.kind for b in shaped.model.bricks} - {""}
+    assert any(not TYPES[k].inverted for k in kinds) and any(TYPES[k].inverted for k in kinds)   # top and underside
     # nothing sits on a cell without a stud
     m = shaped.model
     above = np.zeros_like(m.occupancy)

@@ -14,6 +14,57 @@ The layout follows SHaPe ReCo's: an engine package (`lego_engine/`, like `reco_e
 (`lego_gui/`, like `reco_gui/`), `install.sh` with a command and a desktop entry, `tests/`, and the logo pipeline in
 `packaging/logo/`.
 
+## What it does
+
+<p align="center"><img src="docs/images/shaped_pieces.png" width="860" alt="A sphere in plain bricks, the same sphere with
+shaped pieces, the logo's mushroom with shaped and special pieces in the input's colours"></p>
+
+*Left: a sphere in plain bricks (20 studs, 7.8 % of its volume off). Middle: the same with shaped pieces - curved
+slopes, dome corners, round corners, inverted slopes underneath (5.2 %). Right: the logo's mushroom (24 studs) with
+shaped and special pieces in the colours of its PLY - the caramel umbo is a special piece; magenta marks parts that
+are not connected to the bottom.*
+
+1. **A part in.** STL, STEP, OBJ, PLY, 3MF or glTF. A coloured mesh keeps its colours; a plain one gets a pattern
+   (by size, rainbow, fade, random, one colour ...).
+2. **The resolution.** How many studs along the part's longest side, in bricks (9.6 mm) or plates (3.2 mm): a slider
+   under the 3D view redoes the model as you move it, from a blocky likeness to a fine one.
+3. **Bricks that hold.** The part is measured on the brick grid (winding numbers, robust for imperfect meshes), sheet
+   metal and thin profiles are caught, and the bricks are laid in a running bond so the layers interlock; parts that
+   would not hold are shown in magenta.
+4. **Shaped pieces where the surface curves**, **special pieces where nothing else fits**: slopes, curved slopes,
+   round corners, round bricks, dome corners and inverted ones go only where they match the part better than the
+   bricks; special pieces carry the part's exact shape, to be printed. The window shows how far the model is from the
+   part (its *deviation*).
+5. **Parts that stack.** Every stud and what receives it - walls, tubes, posts, sockets - is sized from one
+   tolerance, the stud play; the FreeCAD export measures stacked parts and finds no overlap and exactly that play.
+6. **Out:** a coloured **FreeCAD** document (a solid per part, a spreadsheet of dimensions), an **STL stack** to
+   print (a slab per layer that plugs into the next, or single parts), and a **building manual** (LaTeX and PDF,
+   below). Heavy runs can go to a **server over ssh**.
+
+### The building manual
+
+One step per layer: a picture of the model so far (the new layer bright), the plan of the layer from above (the layer
+below in grey, studs as circles, arrows down the fall of slopes - dashed when they fall underneath -, quarter circles
+for round corners, hatched **S***n* for special pieces) and the parts of the step with their colours; in front, the
+finished model, its numbers and the whole parts list.
+
+<p align="center"><img src="docs/images/manual_pages.png" width="900" alt="Pages of the mushroom's building manual:
+title, parts list, two steps"></p>
+<p align="center"><img src="docs/images/manual_capsule.png" width="900" alt="Pages of the capsule's building manual in
+rainbow colours: title and three steps"></p>
+
+Examples, made with the commands below:
+[the mushroom](examples/manuals/golden_teacher_manual.pdf) (24 pages: 222 parts, 91 shaped, 21 special) and
+[the capsule](examples/manuals/capsule_manual.pdf) (`examples/capsule.step`, 17 pages: 191 parts, rainbow colours).
+
+```bash
+legolize-it cli examples/golden_teacher.ply --studs 24 --shapes all --special --manual --out out/mushroom
+legolize-it cli examples/capsule.step --studs 16 --shapes all --special --colours rainbow --manual --out out/capsule
+```
+
+In the window: *Export manual* (Ctrl+M), or tick *with every export* and the STL stack and FreeCAD exports bring it
+along.
+
 ## Install
 
 ```bash
@@ -93,12 +144,12 @@ rewritten to name the local input and folder, not the server's.
    where no filled cell is near (and the step that attaches them to their body) - a solid part does not change;
    *all* adds every cell the surface passes; *off*.
 3. **Shaped and special pieces** (`shapes.py`, optional): the cells near the surface are measured finely (6 x 6 x 6
-   points); a piece goes where it fits the part better than the bricks (or gap) it replaces - by at least 0.12 of a
+   points); a piece goes where it fits the part better than the bricks (or gap) it replaces - by at least 0.2 of a
    cell, and no cell of it worse - if nothing sits on a cell without a stud (a curved top) and it holds (on a stud
    below or under something above). Pieces that end up floating are replaced by bricks. Special pieces: cells where
    the best brick or piece leaves more than the tolerance wrong get the input cut to the cell (manifold3d for a closed
    mesh; exact B-rep in FreeCAD for a STEP), joined into rectangles per layer. Measured 2026-11-12, deviation from the
-   part: sphere 12 studs 12.9 % (bricks) -> 8.0 % (shaped), 24 studs 6.3 -> 3.9 %; the logo's mushroom (24) 26 -> 17 %.
+   part: sphere 12 studs 12.9 % (bricks) -> 8.8 % (shaped), 24 studs 6.3 -> 4.4 %; the logo's mushroom (24) 26 -> 19 %.
 4. **Layout** (`layout.py`): per layer, the first free cell in scan order anchors the brick with the best score: area,
    + bridging two or three bricks below, + the layer's direction (layers cross), - ending on a joint of the layer below
    (running bond). Repair passes (`layout_connected`): where two groups touch side by side without holding together
@@ -150,7 +201,10 @@ as one piece, the others are assemblies, single-layer flat parts or have detache
 ## Examples
 
 - `examples/golden_teacher.ply` - the logo's mushroom with its colours (`.stl` without, `.blend` the Blender model);
-- `examples/portal_frame.step` - a steel portal frame (6.35 x 4.39 m, IPE beams, thin walls): try `--studs 24`.
+- `examples/portal_frame.step` - a steel portal frame (6.35 x 4.39 m, IPE beams, thin walls): try `--studs 24`;
+- `examples/capsule.step` - a cylinder with a torus ring, a dome and a cone (made in FreeCAD): shaped pieces and
+  exact special pieces;
+- `examples/manuals/` - the building manuals of the mushroom and the capsule (PDF).
 
 ## Limits
 
