@@ -142,6 +142,7 @@ legolize-it cli part.ply --scale 1 --unit plate --cheapest --order de --manual -
 #                (--max-parts N keeps the count down; the sizes found: --colour-sizes 'white:2x4,1x2;red:1x2')
 #   out/order/   order.tex, order.pdf, order.md, order.csv: one line per pack (item number, part, colour, packs)
 legolize-it shop order Coaster=out1/result.json Brush=out2/manual/manual.tex --lang de --out order/   # one order
+legolize-it shop plan plan.json --manual --out out/   # several builds in shared colours, bought together (below)
 ```
 
 [BlueBrixx](https://www.bluebrixx.com) sells *part packs*: one part in one colour, e.g. "BRICK 2X4 X 50" for 4.95 EUR,
@@ -151,6 +152,18 @@ searches the brick sizes **per colour**: each colour starts with the sizes the s
 the order), then sizes are dropped from a colour while that lowers the price and the model holds together no worse -
 an accent colour ends up with one or two sizes, the main colour keeps the big bricks. A model with a few more, smaller
 bricks is often the cheaper one. Few colours, and hidden inner cells in a colour the model shows anyway, save more.
+
+Builds bought together share packs, and they share more in the same colours: `--recolour 'white:light_bluish_grey,
+dark_blue:dark_bluish_grey'` builds a model's colours in others, and `shop plan` takes several builds with their
+colours as roles (0 light, 1 dark; colours not listed go by their lightness), tries colour pairs and searches the
+sizes per colour over all builds at once - the
+price of the one order, ties to the order whose packs are used most fully (the order list shows the usage per pack):
+
+```json
+{"pairs": [["light_bluish_grey", "dark_bluish_grey"], ["white", "black"]],
+ "builds": [{"name": "Coaster", "input": "coaster.ply", "args": "--scale 1 --unit plate", "max_parts": 400,
+             "roles": {"white": 0, "dark_blue": 1}}, ...]}
+```
 
 The catalogue (`~/.cache/legolize/bluebrixx/catalogue.json`) is a snapshot: the listings of partpacks/bricks and
 partpacks/plates, then the head of each standard pack's page (its colour is only there: `BPP<design>-<colour>`, and

@@ -334,6 +334,22 @@ class Order:
     def packs(self) -> int:
         return sum(x.packs for x in self.lines)
 
+    def part_usage(self) -> Dict[Tuple, Tuple[int, int]]:
+        """Per part bought (unit, part, colour, instead_of): (pieces used, pieces in its packs)."""
+        out: Dict[Tuple, List[int]] = {}
+        for x in self.lines:
+            k = (x.unit, x.part, x.colour, x.instead_of)
+            used, bought = out.get(k, (x.need, 0))
+            out[k] = (used, bought + x.packs * x.pack.pieces)
+        return out
+
+    @property
+    def usage(self) -> float:
+        """Pieces used / pieces bought over the whole order (how much of the packs the builds use)."""
+        u = self.part_usage().values()
+        bought = sum(b for _a, b in u)
+        return round(sum(a for a, _b in u) / bought, 4) if bought else 1.0
+
     def search_cost(self) -> float:
         """The parts' cost plus NO_PACK for the parts no pack covers (what cheapest_sizes minimises): any order the
         shop can fill beats one it cannot."""
@@ -343,7 +359,7 @@ class Order:
 
     def to_dict(self) -> Dict:
         return {"catalogue_date": self.catalogue_date, "models": self.models, "parts_cost": self.parts_cost,
-                "shipping": self.shipping, "packs": self.packs,
+                "shipping": self.shipping, "packs": self.packs, "usage": self.usage,
                 "lines": [dict(asdict(x), cost=x.cost) for x in self.lines], "missing": [asdict(x) for x in self.missing]}
 
 
@@ -452,6 +468,78 @@ def cheapest_sizes(legolizer, settings, catalogue: Catalogue, progress: Optional
     return best[0], best[1], best[2], trace
 
 
+def cheapest_together(builds: List[Tuple[str, object]], catalogue: Catalogue,
+                      progress: Optional[Callable[[str], None]] = None, max_parts: Optional[Dict[str, int]] = None):
+    """Several builds bought in one order: ({name: (settings, result)}, Order, trace). Like cheapest_sizes, but the
+    brick sizes per colour are shared by all builds of a unit (bricks, plates) and the price is that of the one order -
+    packs one build opens serve the others (an XL pack of 1x2 plates for three models instead of three small ones).
+    Ties in price go to the order whose packs are used more fully (Order.usage). Every build keeps to the same grid,
+    holds together no worse than with all sizes, and stays within max_parts[name]."""
+    from .pipeline import Legolizer
+    say = progress or (lambda _t: None)
+    base = dict(builds)
+    lz = {n: Legolizer() for n in base}
+    every = sorted({(min(a, b), max(a, b)) for s in base.values() for a, b in s.sizes}, key=lambda t: (-t[0] * t[1], t))
+    first = {n: lz[n].run(replace(s, colour_sizes=())) for n, s in base.items()}
+    colours: Dict[str, set] = defaultdict(set)
+    for r in first.values():
+        for (u, _p, c) in needs(r):
+            colours[u].add(c)
+    cache: Dict[Tuple, Tuple] = {}
+    trace: List[Tuple[str, float, float]] = []
+
+    def run_build(n, state):
+        u = base[n].unit
+        cs = tuple(sorted((c, tuple(sorted(v, key=lambda t: (-t[0] * t[1], t)))) for (uu, c), v in state.items()
+                          if uu == u))
+        if (n, cs) not in cache:
+            union = tuple(sorted({x for _c, v in cs for x in v}, key=lambda t: (-t[0] * t[1], t)))
+            st = replace(base[n], sizes=union, colour_sizes=cs)
+            r = lz[n].run(st)
+            cache[(n, cs)] = (st, r, needs(r), (r.stats["groups"], r.stats["floating"], r.stats["bricks"]))
+        return cache[(n, cs)]
+
+    def evaluate(state):
+        runs = {n: run_build(n, state) for n in base}
+        order = price({n: v[2] for n, v in runs.items()}, catalogue)
+        trace.append((name(state), order.search_cost(), order.usage))
+        return state, runs, order
+
+    def name(state):
+        return "; ".join(f"{u} {c}: " + ",".join(f"{a}x{b}" for a, b in sorted(v)) for (u, c), v in sorted(state.items()))
+
+    def fits(ev):
+        return all(v[3][0] <= limit[n][0] and v[3][1] <= limit[n][1] and
+                   (not max_parts or max_parts.get(n) is None or v[3][2] <= max_parts[n]) for n, v in ev[1].items())
+
+    def rank(ev):
+        return (ev[2].search_cost(), -ev[2].usage, sum(v[3][2] for v in ev[1].values()))
+
+    state = {(u, c): frozenset({x for x in every if catalogue.find(u, f"{x[0]}x{x[1]}", c)[1]} | {(1, 1)})
+             for u, cols in colours.items() for c in cols}
+    best = evaluate(state)
+    limit = {n: (max(first[n].stats["groups"], v[3][0]), max(first[n].stats["floating"], v[3][1]))
+             for n, v in best[1].items()}
+    say(f"start: {best[2].search_cost():.2f} EUR, usage {best[2].usage:.0%}")
+    while True:
+        cur = best[0]
+        moves = []
+        for key, v in cur.items():
+            moves += [{**cur, key: v - {drop}} for drop in v if drop != (1, 1)]
+            used = {(min(b.w, b.d), max(b.w, b.d)) for n, run in best[1].items() if base[n].unit == key[0]
+                    for b, c in zip(run[1].model.bricks, needs_colours(run[1])) if b.is_brick and c == key[1]}
+            if v - used - {(1, 1)}:
+                moves.append({**cur, key: frozenset(v & used) | {(1, 1)}})
+        ok = [ev for ev in map(evaluate, moves) if fits(ev)]
+        ev = min(ok, key=rank, default=None)
+        if ev is None or rank(ev) >= rank(best):
+            break
+        best = ev
+        say(f"-> {best[2].search_cost():.2f} EUR, usage {best[2].usage:.0%}, "
+            f"{sum(v[3][2] for v in best[1].values())} parts")
+    return {n: (v[0], v[1]) for n, v in best[1].items()}, best[2], trace
+
+
 def needs_colours(result) -> List[str]:
     """The palette colour of every brick of a result (as needs() counts them)."""
     from .palette import NAMES, snap_index
@@ -470,6 +558,14 @@ def main(argv=None) -> int:
     c.add_argument("--catalogue", default=str(CACHE))
     c.add_argument("--delay", type=float, default=1.0, help="seconds between requests (default 1)")
     c.add_argument("--refresh", action="store_true", help="read every product again (prices, stock)")
+    pl = sub.add_parser("plan", help="builds bought together, in shared colours: the cheapest order (a JSON plan)")
+    pl.add_argument("plan", help='{"pairs": [[light, dark], ...], "builds": [{"name", "input", "args", "roles": '
+                                 '{palette colour: 0|1}, "max_parts"}]}')
+    pl.add_argument("--catalogue", default=str(CACHE))
+    pl.add_argument("--lang", choices=("de", "en"), default="de")
+    pl.add_argument("--out", default="plan")
+    pl.add_argument("--title", default=None)
+    pl.add_argument("--manual", action="store_true", help="also the building manuals (and pictures)")
     o = sub.add_parser("order", help="one order list for builds: NAME=result.json or NAME=manual.tex")
     o.add_argument("models", nargs="+")
     o.add_argument("--catalogue", default=str(CACHE))
@@ -486,6 +582,8 @@ def main(argv=None) -> int:
         print(f"no catalogue at {args.catalogue}: run `python3 -m lego_engine.shop crawl` first", file=sys.stderr)
         return 2
     from .export_order import write_order
+    if args.what == "plan":
+        return run_plan(args, say)
     models = {}
     for m in args.models:
         name, _, path = m.rpartition("=") if "=" in m else (Path(m).parent.name, "", m)
@@ -494,6 +592,59 @@ def main(argv=None) -> int:
     res = write_order(order, args.out, args.lang, args.title, pdf=not args.no_pdf, progress=say)
     print(json.dumps({**res, "parts_cost": order.parts_cost, "shipping": order.shipping, "packs": order.packs,
                       "missing": len(order.missing)}, indent=1))
+    return 0
+
+
+def run_plan(args, say) -> int:
+    """`shop plan`: every colour pair of the plan, every build recoloured by its roles, cheapest_together; the
+    cheapest pair's builds are saved (result.json, and with --manual the manual and a picture) with one order list."""
+    import shlex
+    from .cli import build_parser, settings_from_args
+    from .palette import NAMES, PALETTE, to_lab
+    from .export_order import write_order
+    plan = json.loads(Path(args.plan).read_text())
+    catalogue = Catalogue.load(args.catalogue)
+    out = Path(args.out)
+    pairs = [tuple(p) for p in plan.get("pairs", [])] or [tuple(plan["colours"])]
+    tried = []
+    for pair in pairs:
+        builds = []
+        for b in plan["builds"]:
+            a = build_parser().parse_args([b["input"], *shlex.split(b.get("args", ""))])
+            st = settings_from_args(a)
+            roles = dict(b.get("roles", {}))
+            for c in NAMES:                         # every other colour by its lightness: exactly the two colours
+                roles.setdefault(c, 0 if to_lab(np.asarray(PALETTE[c], float))[0] >= 50 else 1)
+            st = replace(st, recolour=tuple(sorted((src, pair[int(k)]) for src, k in roles.items()
+                                                   if src != pair[int(k)])))
+            builds.append((b["name"], st))
+        say(f"== {pair[0]} + {pair[1]}")
+        caps = {b["name"]: b["max_parts"] for b in plan["builds"] if b.get("max_parts")}
+        res, order, trace = cheapest_together(builds, catalogue, say, caps)
+        tried.append((pair, res, order, len(trace)))
+        say(f"   {order.parts_cost:.2f} EUR, {order.packs} packs, usage {order.usage:.0%}, missing {len(order.missing)}")
+    pair, res, order, _n = min(tried, key=lambda t: (t[2].search_cost(), -t[2].usage))
+    for name_, (st, r) in res.items():
+        d = out / name_
+        r.save_json(d / "result.json")
+        if args.manual:
+            from .export_manual import write_manual
+            write_manual(r, d / "manual", progress=say)
+            try:
+                from lego_gui.scene import render_png
+                render_png(r, d / "view.png")
+            except Exception as e:                                       # no VTK: the manual has the plans
+                say(f"no picture: {e}")
+    lists = write_order(order, out / "order", args.lang, args.title, progress=say)
+    summary = {"best": list(pair), "parts_cost": order.parts_cost, "shipping": order.shipping, "packs": order.packs,
+               "usage": order.usage, "missing": len(order.missing), "order": lists["pdf"] or lists["tex"],
+               "builds": {n: {"parts": r.stats["bricks"], "groups": r.stats["groups"], "floating": r.stats["floating"],
+                              "colour_sizes": {c: [f"{a}x{b}" for a, b in v] for c, v in st.colour_sizes}}
+                          for n, (st, r) in res.items()},
+               "pairs": [{"pair": list(p), "parts_cost": o.parts_cost, "packs": o.packs, "usage": o.usage,
+                          "missing": len(o.missing), "trials": n} for p, _r, o, n in tried]}
+    (out / "plan_result.json").write_text(json.dumps(summary, indent=1))
+    print(json.dumps(summary, indent=1))
     return 0
 
 

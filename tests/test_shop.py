@@ -7,8 +7,8 @@ import pytest
 
 from lego_engine.export_order import write_order
 from lego_engine.pipeline import LegoSettings, Legolizer
-from lego_engine.shop import (Catalogue, Pack, cheapest, cheapest_sizes, crawl, needs, needs_from_json,
-                              needs_from_manual, parse_listing, parse_product, price)
+from lego_engine.shop import (Catalogue, Pack, cheapest, cheapest_sizes, cheapest_together, crawl, needs,
+                              needs_from_json, needs_from_manual, parse_listing, parse_product, price)
 from lego_engine.system import DEFAULT_SIZES
 
 
@@ -147,3 +147,23 @@ def test_a_brick_the_shop_lacks_is_bought_as_three_plates(tmp_path):
     (line,) = order.lines
     assert (line.unit, line.colour, line.need, line.plates_per_brick, line.instead_of) == ("plate", "yellow", 21, 3, "")
     assert "3 je Stein 1x1" in open(write_order(order, tmp_path, "de", pdf=False)["md"], encoding="utf-8").read()
+
+
+def test_recolour_and_two_builds_bought_together(parts, tmp_path):
+    """The two-colour part built in grey and black, the L in grey: one order, the shop sells the greys in few sizes -
+    shared packs, nothing missing, usage between 0 and 1, the LaTeX list shows the usage."""
+    grey = {"red": "light_bluish_grey", "blue": "black"}
+    two = LegoSettings(input=str(parts["two"]), size_mode="scale", size=1.0, recolour=tuple(sorted(grey.items())))
+    L = LegoSettings(input=str(parts["L"]), size_mode="scale", size=1.0, colour_mode="single",
+                     single_colour="light_bluish_grey")
+    r = Legolizer().run(two)
+    assert {c for (_u, _p, c) in needs(r)} == {"light_bluish_grey", "black"}
+    sold = [pack(p, "light_bluish_gray", 100, 4.95) for p in ("1x1", "1x2", "2x2", "2x4")] + \
+           [pack(p, "black", 100, 4.95) for p in ("1x1", "1x2")]
+    res, order, trace = cheapest_together([("two", two), ("L", L)], Catalogue(sold))
+    assert set(res) == {"two", "L"} and not order.missing and 0 < order.usage <= 1 and trace
+    for (_u, p, c) in needs(res["two"][1]):
+        assert (c, p) in {("light_bluish_grey", "1x1"), ("light_bluish_grey", "1x2"), ("light_bluish_grey", "2x2"),
+                          ("light_bluish_grey", "2x4"), ("black", "1x1"), ("black", "1x2")}
+    tex = open(write_order(order, tmp_path, "de", pdf=False)["tex"], encoding="utf-8").read()
+    assert "Nutzung" in tex and "genutzt" in tex

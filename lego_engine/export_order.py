@@ -26,8 +26,9 @@ TEXT: Dict[str, Dict[str, str]] = {
            "parts": "parts", "stand": "Prices and stock: the BlueBrixx online shop, {date}.",
            "online_note": "Packs marked \\textbf{online} are sold online only, not in the stores.",
            "item": "Item no.", "part": "Part", "colour": "Colour", "per_pack": "Pieces/pack", "packs": "Packs",
-           "need": "Needed (per model)", "price": "Price", "sum": "Sum", "online": "online",
-           "total": "Parts {cost} EUR, {packs} packs; online shipping {ship} EUR (free from {free} EUR).",
+           "need": "Needed (per model)", "price": "Price", "sum": "Sum", "online": "online", "use": "Used",
+           "total": "Parts {cost} EUR, {packs} packs, {used} of {bought} pieces used ({usage}); online shipping "
+                    "{ship} EUR (free from {free} EUR).",
            "spare": "Packs often hold more than needed - the rest is stock for the next model.",
            "missing": "Not available as a standard pack", "count": "Count", "why": "Why",
            "shaped": "shaped piece: not a standard pack", "unsold": "no pack of this size and colour in stock",
@@ -38,8 +39,9 @@ TEXT: Dict[str, Dict[str, str]] = {
            "parts": "Teile", "stand": "Preise und Verfügbarkeit: BlueBrixx-Onlineshop, Stand {date}.",
            "online_note": "Mit \\textbf{online} markierte Packs gibt es laut Shop nur online, nicht in den Stores.",
            "item": "Art.-Nr.", "part": "Teil", "colour": "Farbe", "per_pack": "Stück/Pack", "packs": "Packs",
-           "need": "benötigt (je Modell)", "price": "Preis", "sum": "Summe", "online": "online",
-           "total": "Teile {cost} EUR, {packs} Packs; online zzgl. Versand {ship} EUR (versandkostenfrei ab {free} EUR).",
+           "need": "benötigt (je Modell)", "price": "Preis", "sum": "Summe", "online": "online", "use": "Nutzung",
+           "total": "Teile {cost} EUR, {packs} Packs, {used} von {bought} Teilen genutzt ({usage}); online zzgl. "
+                    "Versand {ship} EUR (versandkostenfrei ab {free} EUR).",
            "spare": "Packs enthalten oft mehr als nötig - der Rest ist Vorrat für das nächste Modell.",
            "missing": "Nicht als Standard-Pack erhältlich", "count": "Anzahl", "why": "Grund",
            "shaped": "Formteil: kein Standard-Pack", "unsold": "kein Pack dieser Größe und Farbe vorrätig",
@@ -99,23 +101,29 @@ def write_order(order: Order, out_dir, lang: str = "de", title: Optional[str] = 
         return c + (f" ({t['instead']} {colour_name(x.instead_of, lang)})" if x.instead_of else "")
     online = any(x.pack.online_only for x in lines)
     substitutes = any(x.instead_of for x in lines)
+    usage = order.part_usage()
+
+    def use(x):                                                         # pieces used of those bought, for this part
+        a, b = usage[(x.unit, x.part, x.colour, x.instead_of)]
+        return f"{100 * a / b:.0f}%" if b else ""
+    used_all, bought_all = sum(a for a, _ in usage.values()), sum(b for _, b in usage.values())
 
     with open(out / "order.csv", "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh, delimiter=";" if lang == "de" else ",")
         w.writerow([t["item"], "product", t["part"], t["colour"], "shop colour", t["per_pack"], t["packs"], t["need"],
-                    t["price"], t["sum"], t["online"], "url"])
+                    t["use"], t["price"], t["sum"], t["online"], "url"])
         for x in lines:
             w.writerow([x.pack.item, x.pack.name, part(x.unit, x.part, x), cname(x), x.shop_colour,
-                        x.pack.pieces, x.packs, f"{x.need} ({per(x.per_model)})", money(x.pack.price, lang),
+                        x.pack.pieces, x.packs, f"{x.need} ({per(x.per_model)})", use(x), money(x.pack.price, lang),
                         money(x.cost, lang), t["yes"] if x.pack.online_only else "", x.pack.url])
 
     total = t["total"].format(cost=money(order.parts_cost, lang), packs=order.packs, ship=money(order.shipping, lang),
-                              free=f"{FREE_FROM:.0f}")
+                              free=f"{FREE_FROM:.0f}", used=used_all, bought=bought_all, usage=f"{100 * order.usage:.0f}%")
     md = [f"# {title}", "", t["stand"].format(date=day(order.catalogue_date, lang)), "",
           f"| | {t['item']} | {t['part']} | {t['colour']} | {t['per_pack']} | {t['packs']} | {t['need']} | "
-          f"{t['price']} | {t['sum']} | |", "|---|---|---|---|---:|---:|---|---:|---:|---|"]
+          f"{t['use']} | {t['price']} | {t['sum']} | |", "|---|---|---|---|---:|---:|---|---:|---:|---:|---|"]
     md += [f"| ☐ | [{x.pack.item}]({x.pack.url}) | {part(x.unit, x.part, x)} | {cname(x)} | "
-           f"{x.pack.pieces} | {x.packs} | {x.need} ({per(x.per_model)}) | {money(x.pack.price, lang)} | "
+           f"{x.pack.pieces} | {x.packs} | {x.need} ({per(x.per_model)}) | {use(x)} | {money(x.pack.price, lang)} | "
            f"{money(x.cost, lang)} | {t['online'] if x.pack.online_only else ''} |" for x in lines]
     md += ["", f"**{total}**"]
     if substitutes:
@@ -148,17 +156,18 @@ def write_order(order: Order, out_dir, lang: str = "de", title: Optional[str] = 
             rf"{t['models']}: {tex_escape(models)}.\par",
             tex_escape(t["stand"].format(date=day(order.catalogue_date, lang))) + (" " + t["online_note"] if online else "")
             + r"\par\medskip",
-            r"\begin{longtable}{@{}c >{\bfseries}l l l r r p{6.6cm} r r c@{}}", r"\toprule",
+            r"\begin{longtable}{@{}c >{\bfseries}l l l r r p{5.8cm} r r r c@{}}", r"\toprule",
             rf" & {t['item']} & {t['part']} & {t['colour']} & {t['per_pack']} & {t['packs']} & "
-            rf"{tex_escape(t['need'])} & {t['price']} & {t['sum']} & \\", r"\midrule", r"\endhead"]
+            rf"{tex_escape(t['need'])} & {t['use']} & {t['price']} & {t['sum']} & \\", r"\midrule", r"\endhead"]
     bold_online = r"\textbf{" + t["online"] + "}"                     # (no backslashes inside f-strings: Python 3.10)
     for x in lines:
         flag = bold_online if x.pack.online_only else ""
         doc.append(rf"$\square$ & \href{{{x.pack.url}}}{{{x.pack.item}}} & {tex_escape(part(x.unit, x.part, x))} & "
                    rf"{sw(x.colour)}{tex_escape(cname(x))} & {x.pack.pieces} & {x.packs} & "
-                   rf"{x.need} ({tex_escape(per(x.per_model))}) & {money(x.pack.price, lang)} & "
+                   rf"{x.need} ({tex_escape(per(x.per_model))}) & {tex_escape(use(x))} & {money(x.pack.price, lang)} & "
                    rf"{money(x.cost, lang)} & {flag} \\")
-    doc += [r"\midrule", rf" & & & & & {order.packs} & & & \textbf{{{money(order.parts_cost, lang)}}} & \\",
+    doc += [r"\midrule", rf" & & & & & {order.packs} & & {100 * order.usage:.0f}\% & & "
+                          rf"\textbf{{{money(order.parts_cost, lang)}}} & \\",
             r"\bottomrule", r"\end{longtable}", tex_escape(total) + r"\par", tex_escape(t["spare"]) + r"\par"]
     if substitutes:
         doc.append(t["substitutes"] + r"\par")

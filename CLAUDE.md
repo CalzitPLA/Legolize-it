@@ -94,6 +94,12 @@ Read `README.md` (use, pipeline, limits) and `docs/CODEMAP.md` (modules, data fl
   the "keep only the used sizes" move fixes it (tests/test_shop.py). 1x1 always stays (it fills any cell): where the
   shop has no 1x1 in a colour (silver, yellow, light nougat bricks), the order buys the nearest colour it has
   ("statt ..."). Fewer sizes mean more bricks: --max-parts caps it (the coaster: ~300 asked, 327 at 330).
+- Two colours for five builds bought together (`shop plan`, 2026-11-24; coaster, palette brush, excavator,
+  kinderwagen, squirrel): light + dark bluish grey 164.60 EUR / 28 packs / 62 % of the pieces used; light grey +
+  black 185.55; white + dark grey 192.75; tan + dark tan 202.65; white + black 214.70 (the greys come in all 11
+  sizes as bricks and plates, cheapest per piece). Below 100 EUR was not reached at the same resolution. A colour
+  missing from a build's roles slipped through as a third colour (the squirrel's tail tip snapped to medium nougat:
+  three packs, one of them for a single brick) - plan now gives every palette colour a role (else by lightness).
 - Hidden inner cells take the nearest surface's colour: a model whose inner layer lies under a coloured pattern
   needs those cells kept in the main colour, or it buys packs of colours nobody sees.
 

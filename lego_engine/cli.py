@@ -77,6 +77,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--cheapest", action="store_true",
                     help="the brick catalogue with the cheapest BlueBrixx order at this grid (lego_engine.shop)")
     ap.add_argument("--max-parts", type=int, default=None, help="--cheapest: at most this many parts")
+    ap.add_argument("--recolour", default=None, metavar="MAP",
+                    help="build colours in others: 'white:light_bluish_grey,dark_blue:dark_bluish_grey' (palette names)")
     ap.add_argument("--colour-sizes", default=None, metavar="SPEC",
                     help="brick sizes per colour, e.g. 'white:2x4,1x2;red:1x2' (--cheapest picks them; others: --sizes)")
     ap.add_argument("--order", nargs="?", choices=("de", "en"), const="de", default=None,
@@ -100,7 +102,19 @@ def settings_from_args(args) -> LegoSettings:
                         special=args.special is not None,
                         special_tolerance=0.3 if args.special is None else args.special,
                         bridge_weight=args.interlock, deflection=args.deflection, snap_colours=not args.no_snap,
-                        system=system, colour_sizes=parse_colour_sizes(args.colour_sizes))
+                        system=system, colour_sizes=parse_colour_sizes(args.colour_sizes),
+                        recolour=parse_recolour(args.recolour))
+
+
+def parse_recolour(spec) -> tuple:
+    """'white:light_bluish_grey,dark_blue:dark_bluish_grey' -> (('dark_blue', 'dark_bluish_grey'), ('white', ...))."""
+    if not spec:
+        return ()
+    pairs = [p.split(":", 1) for p in spec.split(",") if p.strip()]
+    for src, dst in pairs:
+        if src.strip() not in COLOUR_NAMES or dst.strip() not in COLOUR_NAMES:
+            raise SystemExit(f"--recolour: {src}:{dst} - palette names are {', '.join(COLOUR_NAMES)}")
+    return tuple(sorted((a.strip(), b.strip()) for a, b in pairs))
 
 
 def parse_colour_sizes(spec) -> tuple:
@@ -134,6 +148,8 @@ def settings_args(s: LegoSettings) -> List[str]:
         out.append("--no-snap")
     if s.colour_sizes:
         out += ["--colour-sizes", format_colour_sizes(s.colour_sizes)]
+    if s.recolour:
+        out += ["--recolour", ",".join(f"{a}:{b}" for a, b in s.recolour)]
     return out
 
 

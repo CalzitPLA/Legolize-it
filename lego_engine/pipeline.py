@@ -56,11 +56,14 @@ class LegoSettings:
     system: BrickSystem = field(default_factory=BrickSystem)
     colour_sizes: Tuple[Tuple[str, Tuple[Tuple[int, int], ...]], ...] = ()   # per palette colour the brick sizes it
                                            # may use (those a shop sells in it - lego_engine.shop); others: `sizes`
+    recolour: Tuple[Tuple[str, str], ...] = ()   # source colours: palette colour -> the one to build it in (after
+                                           # snapping; e.g. a model in two colours, to share packs with others)
 
     def to_dict(self) -> Dict:
         d = asdict(self)
         d["sizes"] = [list(s) for s in self.sizes]
         d["colour_sizes"] = {c: [list(s) for s in sz] for c, sz in self.colour_sizes}
+        d["recolour"] = dict(self.recolour)
         return d
 
     @classmethod
@@ -73,6 +76,9 @@ class LegoSettings:
             cs = d["colour_sizes"]
             d["colour_sizes"] = tuple((c, tuple(tuple(s) for s in sz)) for c, sz in (cs.items() if isinstance(cs, dict)
                                                                                      else cs))
+        if "recolour" in d:
+            rc = d["recolour"]
+            d["recolour"] = tuple(sorted((rc.items() if isinstance(rc, dict) else (tuple(x) for x in rc))))
         if "shapes" in d:
             d["shapes"] = parse_families(d["shapes"])
         if isinstance(d.get("thin_walls"), bool):                     # results of 2026-11-11 stored a bool
@@ -342,7 +348,14 @@ class Legolizer:
         from scipy import ndimage
         inside = ndimage.binary_erosion(occ, structure=ndimage.generate_binary_structure(3, 1), border_value=0)
         labels = np.full(occ.shape, -2, np.int32)
-        labels[tuple(cells.T)] = snap_index(col)
+        idx = snap_index(col)
+        if settings.recolour:                            # the colours to build in
+            to = np.arange(len(NAMES))
+            for src, dst in settings.recolour:
+                if src in NAMES and dst in NAMES:
+                    to[NAMES.index(src)] = NAMES.index(dst)
+            idx = to[idx]
+        labels[tuple(cells.T)] = idx
         snapped = labels.copy()
         labels[inside] = -1
         return colours, labels, snapped

@@ -40,11 +40,11 @@ Arrays are indexed `[i, j, k]` = `[x, y, layer]`; cell `(i, j, k)` spans `origin
 | `lego_engine/analysis.py` | `connectivity` (union-find over stud contacts), `layer_islands`, `stats` |
 | `lego_engine/geometry.py` | display meshes (`bricks_display`, `piece_template`, `voxel_mesh`) and solids (`brick_solid`, `layer_slab`, `model_slab`, `piece_solid`, `piece_print_solid`, `input_solid`, `special_solid`, `special_print_solid`), `stacking_check` |
 | `lego_engine/palette.py` | brick colours, colour modes, `surface_colours` (nearest face of a coloured input), `snap` |
-| `lego_engine/pipeline.py` | `LegoSettings`, `LegoResult`, `Legolizer` (cached load / voxelization, cheap re-layout) |
+| `lego_engine/pipeline.py` | `LegoSettings` (`colour_sizes`, `recolour`: palette colour -> the one to build in), `LegoResult`, `Legolizer` (cached load / voxelization, cheap re-layout) |
 | `lego_engine/export_stl.py` | the STL stack: layer slabs, single bricks, assembly, parts.csv, manifest, README |
 | `lego_engine/export_freecad.py`, `freecad_build.py` | the `.FCStd` (built inside FreeCAD: parts, sheet, stacking check), `write_view_colours` (GuiDocument.xml + ShapeAppearance records), the colour macro; `open_in_freecad` |
 | `lego_engine/export_manual.py` | the building manual (LaTeX + PDF) |
-| `lego_engine/shop.py` | buying the parts at BlueBrixx: `crawl` (the part-pack catalogue, cached in ~/.cache/legolize/bluebrixx/), `Catalogue`/`Pack`, `needs` (from a result, result.json or manual.tex), `cheapest` (pack mix), `price` -> `Order`, `cheapest_sizes` (per colour the brick sizes with the cheapest order: greedy, cached voxelization); `legolize-it shop crawl|order` |
+| `lego_engine/shop.py` | buying the parts at BlueBrixx: `crawl` (the part-pack catalogue, cached in ~/.cache/legolize/bluebrixx/), `Catalogue`/`Pack`, `needs` (from a result, result.json or manual.tex), `cheapest` (pack mix), `price` -> `Order`, `cheapest_sizes` (per colour the brick sizes with the cheapest order: greedy, cached voxelization), `cheapest_together` (several builds, one order, shared sizes per unit and colour), `Order.usage`; `legolize-it shop crawl|order|plan` (plan: colour pairs x builds recoloured by roles) |
 | `lego_engine/export_order.py` | the order list: LaTeX + PDF, Markdown, CSV; English or German |
 | `lego_engine/remote.py` | servers over ssh: `ssh_config_hosts`, the servers file (~/.config/legolize-it), `check`, `sync_code`, `run_cli`; `legolize-it server ...` |
 | `lego_engine/cli.py` | `python3 -m lego_engine` |
