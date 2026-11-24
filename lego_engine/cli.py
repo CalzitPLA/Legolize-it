@@ -6,6 +6,10 @@
 writes DIR/result.json (settings, placement, grid, every brick and piece, colours, numbers) and, if asked, the STL
 stack (DIR/stl/, lego_engine.export_stl), the FreeCAD document (DIR/<part>.FCStd, coloured, with its sheet of
 dimensions and the stacking check) and the building manual (DIR/manual/manual.tex and .pdf). Prints a summary.
+
+--cheapest picks the brick catalogue (--sizes) whose BlueBrixx order costs least at the same grid, --order writes the
+order list (DIR/order/: LaTeX, PDF, Markdown, CSV) - both need the shop's catalogue (lego_engine.shop: crawl it once
+with `python3 -m lego_engine.shop crawl`).
 """
 from __future__ import annotations
 
@@ -70,6 +74,14 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--png", default=None, help="render a picture of the result (needs VTK; offscreen)")
     ap.add_argument("--server", default=None, metavar="HOST",
                     help="run on a server over ssh (legolize-it server add HOST PATH); the results come back to --out")
+    ap.add_argument("--cheapest", action="store_true",
+                    help="the brick catalogue with the cheapest BlueBrixx order at this grid (lego_engine.shop)")
+    ap.add_argument("--max-parts", type=int, default=None, help="--cheapest: at most this many parts")
+    ap.add_argument("--colour-sizes", default=None, metavar="SPEC",
+                    help="brick sizes per colour, e.g. 'white:2x4,1x2;red:1x2' (--cheapest picks them; others: --sizes)")
+    ap.add_argument("--order", nargs="?", choices=("de", "en"), const="de", default=None,
+                    help="write the BlueBrixx order list (DIR/order/), German (default) or English")
+    ap.add_argument("--catalogue", default=None, help="the shop's catalogue (default ~/.cache/legolize/bluebrixx/)")
     ap.add_argument("--quiet", action="store_true")
     return ap
 
@@ -88,7 +100,23 @@ def settings_from_args(args) -> LegoSettings:
                         special=args.special is not None,
                         special_tolerance=0.3 if args.special is None else args.special,
                         bridge_weight=args.interlock, deflection=args.deflection, snap_colours=not args.no_snap,
-                        system=system)
+                        system=system, colour_sizes=parse_colour_sizes(args.colour_sizes))
+
+
+def parse_colour_sizes(spec) -> tuple:
+    """'white:2x4,1x2;red:1x2' -> (('red', ((1, 2),)), ('white', ((2, 4), (1, 2))))."""
+    if not spec:
+        return ()
+    out = []
+    for part in spec.split(";"):
+        if part.strip():
+            name, _, sizes = part.partition(":")
+            out.append((name.strip(), parse_sizes(sizes)))
+    return tuple(sorted(out))
+
+
+def format_colour_sizes(cs) -> str:
+    return ";".join(f"{c}:" + ",".join(f"{a}x{b}" for a, b in sz) for c, sz in cs)
 
 
 def settings_args(s: LegoSettings) -> List[str]:
@@ -104,6 +132,8 @@ def settings_args(s: LegoSettings) -> List[str]:
         out += ["--special", repr(float(s.special_tolerance))]
     if not s.snap_colours:
         out.append("--no-snap")
+    if s.colour_sizes:
+        out += ["--colour-sizes", format_colour_sizes(s.colour_sizes)]
     return out
 
 
@@ -141,9 +171,26 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     say = (lambda _t: None) if args.quiet else (lambda t: print(t, file=sys.stderr))
     if args.server:
+        if args.cheapest or args.order:
+            print("--cheapest and --order run here (they need the shop's catalogue): not with --server", file=sys.stderr)
+            return 2
         return main_remote(args, argv, say)
     settings = settings_from_args(args)
-    result = Legolizer(say).run(settings)
+    legolizer = Legolizer(say)
+    catalogue = None
+    if args.cheapest or args.order:
+        from .shop import CACHE, Catalogue
+        path = Path(args.catalogue) if args.catalogue else CACHE
+        if not path.exists():
+            print(f"no BlueBrixx catalogue at {path}: run `python3 -m lego_engine.shop crawl` first", file=sys.stderr)
+            return 2
+        catalogue = Catalogue.load(path)
+    if args.cheapest:
+        from .shop import cheapest_sizes
+        settings, result, _order, trace = cheapest_sizes(legolizer, settings, catalogue, progress=say,
+                                                         max_parts=args.max_parts)
+    else:
+        result = legolizer.run(settings)
     out = Path(args.out) if args.out else default_out_dir(settings)
     result.save_json(out / "result.json")
     summary = {"result": str(out / "result.json"), **{k: result.stats[k] for k in
@@ -169,6 +216,18 @@ def main(argv=None) -> int:
         from .export_manual import write_manual
         man = write_manual(result, out / "manual", pdf=not args.no_pdf, progress=say)
         summary["manual"] = man["pdf"] or man["tex"]
+    if args.cheapest:
+        summary["sizes"] = ",".join(f"{a}x{b}" for a, b in settings.sizes)
+        summary["colour_sizes"] = format_colour_sizes(settings.colour_sizes)
+        summary["cheapest_trials"] = len(trace)
+    if args.order:
+        from .export_order import write_order
+        from .shop import needs, price
+        order = price({Path(settings.input).stem: needs(result)}, catalogue)
+        res = write_order(order, out / "order", args.order, progress=say)
+        summary["order"] = res["pdf"] or res["tex"]
+        summary["order_cost"] = {"parts": order.parts_cost, "shipping": order.shipping, "packs": order.packs,
+                                 "missing": len(order.missing)}
     if args.png:
         from lego_gui.scene import render_png
         summary["png"] = str(render_png(result, args.png))
