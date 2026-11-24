@@ -136,7 +136,8 @@ rewritten to name the local input and folder, not the server's.
 ## Buying the parts (BlueBrixx)
 
 ```bash
-legolize-it shop crawl                     # the shop's standard brick and plate packs (1x1 .. 2x8), ~15 minutes
+# a snapshot of the shop's catalogue comes with Legolize it (lego_engine/data/, dated) - no crawl needed to price
+legolize-it shop crawl                     # only for current prices and stock: ~700 requests, ~15 minutes
 legolize-it cli part.ply --scale 1 --unit plate --cheapest --order de --manual --out out/
 #   --cheapest   per colour the brick sizes whose order costs least - same grid, same cells
 #                (--max-parts N keeps the count down; the sizes found: --colour-sizes 'white:2x4,1x2;red:1x2')
@@ -165,8 +166,11 @@ price of the one order, ties to the order whose packs are used most fully (the o
              "roles": {"white": 0, "dark_blue": 1}}, ...]}
 ```
 
-The catalogue (`~/.cache/legolize/bluebrixx/catalogue.json`) is a snapshot: the listings of partpacks/bricks and
-partpacks/plates, then the head of each standard pack's page (its colour is only there: `BPP<design>-<colour>`, and
+The catalogue comes with Legolize it: `lego_engine/data/bluebrixx_catalogue.json` (the standard brick and plate packs,
+600 products, read on 2026-11-24), so pricing a build does not have to load the shop's servers again - please crawl
+only when current prices or stock matter; your own crawl (`~/.cache/legolize/bluebrixx/catalogue.json`) is then used
+instead. A crawl reads the listings of partpacks/bricks and partpacks/plates, then the head of each standard pack's
+page (its colour is only there: `BPP<design>-<colour>`, and
 whether it is in stock). One request a second; robots.txt allows these pages; an interrupted crawl resumes. Prices and
 stock change - the order list prints the snapshot's date and links every pack. In 2026-11 all in-stock brick and
 plate packs were marked *available exclusively online*: the list flags them (not in the stores). Shaped pieces and

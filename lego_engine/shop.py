@@ -9,6 +9,8 @@ the bill is driven by how many (part, colour) kinds a build needs, much less by 
 - `crawl()` reads the catalogue of standard bricks and plates (1x1 .. 2x8): the listings of partpacks/bricks and
   partpacks/plates, then the head of each standard pack's product page (colour, stock, the online note). One request a
   second; robots.txt allows these pages. Saved as JSON (`CACHE`); a crawl that stops resumes where it was.
+  Legolize it comes with a snapshot (`BUNDLED`, its date inside), so nobody has to crawl the shop to price a build -
+  `default_catalogue()` takes the own crawl if there is one, else the snapshot. Crawl only for current prices/stock.
 - `needs(result)`, `needs_from_json(path)`, `needs_from_manual(tex)`: what a build needs,
   {(unit, part, palette colour): count} - unit "brick" or "plate", part "2x4" or a shaped piece's label.
 - `price({model: needs}, catalogue)` -> `Order`: for each part the cheapest combination of in-stock packs
@@ -38,6 +40,7 @@ import numpy as np
 SHOP = "https://www.bluebrixx.com"
 LISTINGS = {"brick": "/en/partpacks/bricks/", "plate": "/en/partpacks/plates/"}
 CACHE = Path.home() / ".cache" / "legolize" / "bluebrixx" / "catalogue.json"
+BUNDLED = Path(__file__).resolve().parent / "data" / "bluebrixx_catalogue.json"
 AGENT = "Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101 Firefox/128.0"
 SHIPPING, FREE_FROM = 5.95, 99.0          # Germany, EUR (the shop's shipping page, 2026-11)
 NO_PACK = (100.0, 0.5)                    # what the search charges for a part no pack covers: per part, per piece
@@ -57,6 +60,11 @@ SHOP_COLOURS: Dict[str, Tuple[str, ...]] = {
 
 
 # ------------------------------------------------------------------------------------------------ the catalogue
+
+def default_catalogue() -> Path:
+    """The own crawl (CACHE) if there is one, else the snapshot that comes with Legolize it (BUNDLED)."""
+    return CACHE if CACHE.exists() else BUNDLED
+
 
 @dataclass(frozen=True)
 class Pack:
@@ -84,9 +92,11 @@ class Catalogue:
                 self.index[(p.unit, p.size, p.colour)].append(p)
 
     @classmethod
-    def load(cls, path=CACHE) -> "Catalogue":
-        """From crawl()'s JSON ({"date", "products"}, or a bare list of product records)."""
-        data = json.loads(Path(path).read_text())
+    def load(cls, path=None) -> "Catalogue":
+        """From crawl()'s JSON ({"date", "products"}, or a bare list of product records); default_catalogue() by
+        default."""
+        path = default_catalogue() if path is None else path
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
         records = data["products"] if isinstance(data, dict) else data
         when = data.get("date", "") if isinstance(data, dict) else ""
         return cls([p for p in (pack_from_record(r) for r in records) if p is not None],
@@ -555,20 +565,20 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="legolize-it shop", description="BlueBrixx part packs for Legolize-it builds")
     sub = ap.add_subparsers(dest="what", required=True)
     c = sub.add_parser("crawl", help="read the shop's standard brick and plate packs (about 10-20 minutes)")
-    c.add_argument("--catalogue", default=str(CACHE))
+    c.add_argument("--catalogue", default=str(CACHE), help="where the crawl goes (default ~/.cache/legolize/bluebrixx/)")
     c.add_argument("--delay", type=float, default=1.0, help="seconds between requests (default 1)")
     c.add_argument("--refresh", action="store_true", help="read every product again (prices, stock)")
     pl = sub.add_parser("plan", help="builds bought together, in shared colours: the cheapest order (a JSON plan)")
     pl.add_argument("plan", help='{"pairs": [[light, dark], ...], "builds": [{"name", "input", "args", "roles": '
                                  '{palette colour: 0|1}, "max_parts"}]}')
-    pl.add_argument("--catalogue", default=str(CACHE))
+    pl.add_argument("--catalogue", default=None, help="default: the own crawl, else the snapshot that comes with it")
     pl.add_argument("--lang", choices=("de", "en"), default="de")
     pl.add_argument("--out", default="plan")
     pl.add_argument("--title", default=None)
     pl.add_argument("--manual", action="store_true", help="also the building manuals (and pictures)")
     o = sub.add_parser("order", help="one order list for builds: NAME=result.json or NAME=manual.tex")
     o.add_argument("models", nargs="+")
-    o.add_argument("--catalogue", default=str(CACHE))
+    o.add_argument("--catalogue", default=None, help="default: the own crawl, else the snapshot that comes with it")
     o.add_argument("--lang", choices=("de", "en"), default="de")
     o.add_argument("--out", default="order")
     o.add_argument("--title", default=None)
@@ -578,6 +588,7 @@ def main(argv=None) -> int:
     if args.what == "crawl":
         print(crawl(args.catalogue, args.delay, say, args.refresh))
         return 0
+    args.catalogue = args.catalogue or str(default_catalogue())
     if not Path(args.catalogue).exists():
         print(f"no catalogue at {args.catalogue}: run `python3 -m lego_engine.shop crawl` first", file=sys.stderr)
         return 2

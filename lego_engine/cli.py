@@ -7,9 +7,9 @@ writes DIR/result.json (settings, placement, grid, every brick and piece, colour
 stack (DIR/stl/, lego_engine.export_stl), the FreeCAD document (DIR/<part>.FCStd, coloured, with its sheet of
 dimensions and the stacking check) and the building manual (DIR/manual/manual.tex and .pdf). Prints a summary.
 
---cheapest picks the brick catalogue (--sizes) whose BlueBrixx order costs least at the same grid, --order writes the
-order list (DIR/order/: LaTeX, PDF, Markdown, CSV) - both need the shop's catalogue (lego_engine.shop: crawl it once
-with `python3 -m lego_engine.shop crawl`).
+--cheapest picks per colour the brick sizes whose BlueBrixx order costs least at the same grid, --order writes the
+order list (DIR/order/: LaTeX, PDF, Markdown, CSV) - both price with the shop's catalogue (lego_engine.shop: the
+snapshot that comes with Legolize it, or an own `python3 -m lego_engine.shop crawl` for current prices).
 """
 from __future__ import annotations
 
@@ -83,7 +83,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="brick sizes per colour, e.g. 'white:2x4,1x2;red:1x2' (--cheapest picks them; others: --sizes)")
     ap.add_argument("--order", nargs="?", choices=("de", "en"), const="de", default=None,
                     help="write the BlueBrixx order list (DIR/order/), German (default) or English")
-    ap.add_argument("--catalogue", default=None, help="the shop's catalogue (default ~/.cache/legolize/bluebrixx/)")
+    ap.add_argument("--catalogue", default=None,
+                    help="the shop's catalogue (default: an own crawl in ~/.cache/legolize/bluebrixx/, else the snapshot)")
     ap.add_argument("--quiet", action="store_true")
     return ap
 
@@ -195,8 +196,8 @@ def main(argv=None) -> int:
     legolizer = Legolizer(say)
     catalogue = None
     if args.cheapest or args.order:
-        from .shop import CACHE, Catalogue
-        path = Path(args.catalogue) if args.catalogue else CACHE
+        from .shop import Catalogue, default_catalogue
+        path = Path(args.catalogue) if args.catalogue else default_catalogue()
         if not path.exists():
             print(f"no BlueBrixx catalogue at {path}: run `python3 -m lego_engine.shop crawl` first", file=sys.stderr)
             return 2

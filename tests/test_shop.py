@@ -167,3 +167,15 @@ def test_recolour_and_two_builds_bought_together(parts, tmp_path):
                           ("light_bluish_grey", "2x4"), ("black", "1x1"), ("black", "1x2")}
     tex = open(write_order(order, tmp_path, "de", pdf=False)["tex"], encoding="utf-8").read()
     assert "Nutzung" in tex and "genutzt" in tex
+
+
+def test_the_snapshot_comes_with_it(monkeypatch, tmp_path):
+    """Without an own crawl the bundled snapshot prices a build: dated, standard packs in stock, colours read."""
+    import lego_engine.shop as shop
+    monkeypatch.setattr(shop, "CACHE", tmp_path / "none.json")
+    assert shop.default_catalogue() == shop.BUNDLED
+    cat = Catalogue.load()
+    assert cat.date and sum(p.in_stock for p in cat.packs) > 100
+    assert cat.find("plate", "1x2", "white")[1] and cat.find("brick", "2x4", "light_bluish_grey")[1]
+    (tmp_path / "none.json").write_text('{"date": "2000-01-01", "products": []}')
+    assert shop.default_catalogue() == tmp_path / "none.json"          # an own crawl wins
