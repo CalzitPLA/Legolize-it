@@ -2,8 +2,8 @@
 
 `settings()` returns a lego_engine.pipeline.LegoSettings. `changed(level)` says what a change costs: "layout" (threshold,
 shell, catalogue, pieces, colours - redone at once), "voxelize" (size, unit, up axis, sampling, system) or "load" (the
-file). The window starts with shaped and special pieces on (the engine's and the command line's default is bricks only,
-so their results stay as they were).
+file). The window starts with shaped and special pieces and the details (tiles, rods, bars) on (the engine's and the
+command line's default is bricks only, so their results stay as they were).
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from PyQt5 import QtCore, QtWidgets
 
 from lego_engine.mesh_io import UP_AXES
 from lego_engine.pipeline import LegoSettings
+from lego_engine.details import DETAILS
 from lego_engine.shapes import FAMILIES
 from lego_engine.system import DEFAULT_SIZES, BrickSystem
 
@@ -148,6 +149,20 @@ class SettingsPanel(QtWidgets.QWidget):
             self.family_checks[fam] = box
             grid.addWidget(box, n // 3, n % 3)
         f.addRow("Shaped", grid)
+        grid = QtWidgets.QGridLayout()
+        self.detail_checks = {}
+        for n, (key, label, tip) in enumerate((
+                ("tiles", "tiles", "plates with nothing on top become tiles: smooth tops (plate layers only)"),
+                ("rods", "rods", "free-standing 1x1 columns (3 layers or more) become round 1x1 plates or bricks"),
+                ("bars", "bars", "free-standing straight runs of 4, 5 or 7 cells become a bar (3L, 4L, 6L) held by a "
+                                 "clip plate at each end"))):
+            box = QtWidgets.QCheckBox(label)
+            box.setChecked(True)
+            box.setToolTip(tip + " - for a set-like look (lego_engine.details)")
+            box.toggled.connect(lambda _v: self.changed.emit("layout"))
+            self.detail_checks[key] = box
+            grid.addWidget(box, 0, n)
+        f.addRow("Details", grid)
         self.special = QtWidgets.QCheckBox("exact shape, printed")
         self.special.setChecked(True)
         self.special.setToolTip("where neither a brick nor a shaped piece comes close, a custom piece carries the "
@@ -354,6 +369,8 @@ class SettingsPanel(QtWidgets.QWidget):
             self.snap.setChecked(s.snap_colours)
             for fam, box in self.family_checks.items():
                 box.setChecked(fam in s.shapes)
+            for key, box in self.detail_checks.items():
+                box.setChecked(key in s.details)
             self.special.setChecked(s.special)
             self.special_tol.setValue(int(round(s.special_tolerance * 100)))
             self.special_tol_label.setText(f"{s.special_tolerance:.2f}")
@@ -376,5 +393,6 @@ class SettingsPanel(QtWidgets.QWidget):
             colour_mode=colour_mode, fade=fade or "sunset", single_colour=single or "red",
             snap_colours=self.snap.isChecked(),
             shapes=tuple(f for f in FAMILIES if self.family_checks[f].isChecked()),
+            details=tuple(k for k in DETAILS if self.detail_checks[k].isChecked()),
             special=self.special.isChecked(), special_tolerance=self.special_tol.value() / 100.0,
             deflection=float(self.deflection.value()), system=system)

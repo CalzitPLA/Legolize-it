@@ -20,6 +20,8 @@ LegoResult ──▶ lego_gui (scene.Scene: input translucent, bricks opaque per
                                              check; then write_view_colours puts the colours into the .FCStd)
            ──▶ export_manual.write_manual   (manual.tex: TikZ plans, VTK pictures; pdflatex)
            ──▶ result.json (LegoResult.to_dict) ──▶ packaging/logo/render_logo.py (Blender)
+(LegoSettings.details: details.bar_pieces join the pieces before the layout, details.apply turns plates into tiles and
+ 1x1 columns into rods after it)
 LegoResult ──▶ shop.needs ──▶ shop.price (Catalogue) ──▶ export_order.write_order (the BlueBrixx order list)
            (cli --cheapest: shop.cheapest_sizes lays the bricks again with other sizes per colour -
             LegoSettings.colour_sizes - the cheapest wins)
@@ -33,7 +35,8 @@ Arrays are indexed `[i, j, k]` = `[x, y, layer]`; cell `(i, j, k)` spans `origin
 | module | what it does |
 |---|---|
 | `lego_engine/system.py` | `BrickSystem` (every dimension, mm; `fit()`: walls, tubes, posts, sockets from the stud play), the size catalogue, `parse_sizes`, `normalise_sizes`, `name_area` |
-| `lego_engine/shapes.py` | shaped pieces (`CATALOGUE`: height fields, `mask`, `cell_props` studs/seats, `outline` for the solids), `fine_samples`, `fit_pieces`, `special_cells`, `special_pieces`, `deviation` |
+| `lego_engine/shapes.py` | shaped pieces (`CATALOGUE`: height fields, `mask`, `cell_props` studs/seats, `outline` for the solids - also the details' tiles and bars), `fine_samples`, `fit_pieces`, `special_cells`, `special_pieces`, `deviation` |
+| `lego_engine/details.py` | details laid by rule: `bar_pieces` (bars on two clips, pieces before the layout), `apply` (tiles on uncovered plates, round 1x1 rods - after the layout), `parse_details` |
 | `lego_engine/mesh_io.py` | loading; `find_freecadcmd`, `tessellate_step` (cache `~/.cache/legolize/step/`); `up_matrix` |
 | `lego_engine/voxelize.py` | `Grid`, `Placement`, `place`, `fill_fraction`, `surface_cells`, `thin_cells`, `occupancy`, `hollow` |
 | `lego_engine/layout.py` | `Brick`, `BrickModel`, `layout_layer` (the score: area, bridging, direction, running bond, junctions), `layout_connected` (repair passes), `check_cover`; `colour_sizes`: per colour the sizes a brick may have |

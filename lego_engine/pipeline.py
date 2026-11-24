@@ -58,6 +58,8 @@ class LegoSettings:
                                            # may use (those a shop sells in it - lego_engine.shop); others: `sizes`
     recolour: Tuple[Tuple[str, str], ...] = ()   # source colours: palette colour -> the one to build it in (after
                                            # snapping; e.g. a model in two colours, to share packs with others)
+    details: Tuple[str, ...] = ()          # lego_engine.details.DETAILS: tiles (smooth tops), rods (round 1x1
+                                           # columns), bars (on clips, for free-standing runs); () = none
 
     def to_dict(self) -> Dict:
         d = asdict(self)
@@ -81,6 +83,9 @@ class LegoSettings:
             d["recolour"] = tuple(sorted((rc.items() if isinstance(rc, dict) else (tuple(x) for x in rc))))
         if "shapes" in d:
             d["shapes"] = parse_families(d["shapes"])
+        if "details" in d:
+            from .details import parse_details
+            d["details"] = parse_details(d["details"])
         if isinstance(d.get("thin_walls"), bool):                     # results of 2026-11-11 stored a bool
             d["thin_walls"] = "all" if d["thin_walls"] else "off"
         known = set(cls.__dataclass_fields__)
@@ -248,6 +253,13 @@ class Legolizer:
                                       thin=extra)
                 pieces += special_pieces(cells, fine, sizes)
                 occ = occ | cells
+        from .details import apply as apply_details, bar_pieces, parse_details
+        details = parse_details(settings.details)
+        if "bars" in details:
+            laid = np.zeros_like(occ)
+            for b, _st, _se in pieces:
+                laid[b.i:b.i + b.w, b.j:b.j + b.d, b.layer] = True
+            pieces += bar_pieces(occ, ~laid)
         cell_colours = self._cell_colours(mesh, placed, occ, grid, settings)
         labels = None
         if settings.colour_mode in ("source", "auto") and cell_colours is not None and cell_colours[1] is not None:
@@ -260,6 +272,10 @@ class Legolizer:
                                                              colour_sizes=colour_sizes)
             if dropped:
                 self.say(f"{dropped} pieces that would not hold were replaced by bricks")
+        detail_counts = {}
+        if details:
+            model, detail_counts = apply_details(model, details, settings.unit)
+            detail_counts["bars"] = sum(1 for b in model.bricks if b.kind.startswith("bar_"))
         if any(b.is_special for b in model.bricks):
             from .geometry import manifold_mesh, special_solid
             solid = self.solid(settings)
@@ -275,6 +291,8 @@ class Legolizer:
         if model.bricks:                       # how far from the part (on the fine samples near the surface)
             st["deviation"] = round(deviation(model, self.fine(settings), float(frac.sum()), solid_occ & ~base_occ), 4)
         st["thin_cells"] = thin
+        if details:
+            st["details"] = detail_counts
         t_layout = time.time() - t1
         if not model.bricks:
             self.say(f"no bricks: no cell is filled to the threshold {settings.threshold:g} (the fullest is "

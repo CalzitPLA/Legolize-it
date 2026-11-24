@@ -59,6 +59,14 @@ Read `README.md` (use, pipeline, limits) and `docs/CODEMAP.md` (modules, data fl
   (`socket_clearance`, 0.15): wall 1.35, tube 6.2137, post 2.9, socket 5.1. A round corner's outer cell is partly
   material without a seat: the stud below ran into it (6.8 mm3) until every cell over a stud got a socket.
   `stacking_check` (manifold3d) and the FreeCAD export's check (OpenCASCADE, 60 pairs): overlap 0, gap 0.15.
+- Details (2026-11-24, `details.py`, asked for "rods and bars ... a more lego like look"): tiles, rods and bars are
+  piece types in `shapes.CATALOGUE` (forms "tile": a box without studs; "bar": two 1x1 clip plates and a 3.18 mm bar
+  between, outline op "bar" in geometry and freecad_build) but are laid by rule, not by `fit_pieces` - they are not in
+  FAMILIES. A bar is one piece over its run with a stud and a seat at each end only, so `connectivity` needs no change.
+  Bars need a free run whose ends hold on something below or above: a run that touches only sideways (the beam pipe
+  through end-caps) gets none. Thin input faces on a cell boundary make the thin-wall rule fill the layer above too -
+  the demo rod got no bar until it lay inside one layer. No tile is larger than 2x6 here, so a 2x8 or 4x4 top stays a
+  studded plate. With the window's defaults (shapes on) the surface fit claims round columns before the rods rule.
 - Shaped pieces (2026-11-12): without the per-cell rule (no cell more than 0.05 worse than its brick) inverted slopes
   stuck out of a sphere's equator like blades; pieces holding only each other floated (stacked round corners) - they
   are dropped after the layout. min_gain 0.2 (0.12 filled half-filled cells of flat faces with 1x1 round corners).

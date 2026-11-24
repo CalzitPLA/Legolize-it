@@ -24,6 +24,7 @@ from .export_stl import MODES as STL_MODES
 from .mesh_io import UP_AXES
 from .palette import FADES, MODES as COLOUR_MODES, NAMES as COLOUR_NAMES
 from .pipeline import LegoSettings, Legolizer, default_out_dir
+from .details import parse_details
 from .shapes import FAMILIES, parse_families
 from .system import DEFAULT_SIZES, UNITS, BrickSystem, parse_sizes
 from .voxelize import THIN_MODES
@@ -52,6 +53,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--shapes", default="none",
                     help=f"shaped pieces where they fit better than bricks: a list of {', '.join(FAMILIES)}, or all, "
                          "or none (default)")
+    ap.add_argument("--details", default="none",
+                    help="parts for a set-like look (lego_engine.details): a list of tiles (smooth tops, plate layers), "
+                         "rods (round 1x1 columns), bars (on clips, for free-standing runs), or all, or none (default)")
     ap.add_argument("--special", nargs="?", type=float, const=0.3, default=None, metavar="TOL",
                     help="special pieces (the input's exact shape) where the best brick or piece leaves more than TOL "
                          "of a cell wrong (the bare flag: 0.3)")
@@ -100,6 +104,7 @@ def settings_from_args(args) -> LegoSettings:
                         threshold=args.threshold, samples=args.samples, shell=args.shell, thin_walls=args.thin_walls,
                         sizes=parse_sizes(args.sizes), max_length=args.max_length, colour_mode=args.colours,
                         fade=args.fade, single_colour=args.single, shapes=parse_families(args.shapes),
+                        details=parse_details(args.details),
                         special=args.special is not None,
                         special_tolerance=0.3 if args.special is None else args.special,
                         bridge_weight=args.interlock, deflection=args.deflection, snap_colours=not args.no_snap,
@@ -142,6 +147,7 @@ def settings_args(s: LegoSettings) -> List[str]:
            "--max-length", str(s.max_length), "--interlock", repr(float(s.bridge_weight)),
            "--deflection", repr(float(s.deflection)), "--colours", s.colour_mode, "--fade", s.fade,
            "--single", s.single_colour, "--shapes", ",".join(s.shapes) or "none",
+           "--details", ",".join(s.details) or "none",
            "--system-json", json.dumps(s.system.to_dict(), separators=(",", ":"))]
     if s.special:
         out += ["--special", repr(float(s.special_tolerance))]
@@ -213,6 +219,8 @@ def main(argv=None) -> int:
     summary = {"result": str(out / "result.json"), **{k: result.stats[k] for k in
                ("bricks", "shaped", "special", "layers", "grid", "size_mm", "counts", "groups", "floating", "stable")},
                "timings": result.timings}
+    if "details" in result.stats:
+        summary["details"] = result.stats["details"]
     if not result.model.bricks:
         summary["error"] = "no bricks - nothing exported (see the message above)"
         print(json.dumps(summary, indent=1))

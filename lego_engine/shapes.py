@@ -8,6 +8,9 @@ Shaped pieces (`CATALOGUE`, one layer high, in four turns) - families:
     dome      dome corners: a quarter dome (1x1, 2x2) - the corner where curves meet on a round top
     inverted  inverted slopes and curves (upside down: flat studded top, the fall underneath) for overhangs
 
+Details (lego_engine.details) are pieces of this catalogue too - tiles (form "tile": a box without studs) and bars on two
+clip plates (form "bar") - but they are laid by rule, not fitted here: they are not in FAMILIES.
+
 Every piece is a height field h(u, v) over its footprint in the piece's own frame: u (0..L cells) runs in the direction
 the piece falls off, v (0..W) across; h is the share of the layer height that is material (0 = none). A normal piece
 fills 0 <= t <= h, an inverted one 1 - h <= t <= 1 (t = the height in the layer, 0..1). Turn `rot` (0..3) points u
@@ -40,6 +43,9 @@ FAMILIES = ("slope", "curve", "round", "dome", "inverted")
 STUD_REACH = 0.27                  # a stud (radius 2.4 = 0.3 pitch) needs material this far around the centre: 0.3
                                    # left round 1x1 corners and round 2x2 bricks without studs and seats (by 0.06 mm)
 SPECIAL = "special"
+TILE_SIZES = ((1, 1), (2, 1), (3, 1), (4, 1), (6, 1), (8, 1), (2, 2), (3, 2), (4, 2), (6, 2))   # (L, W): flat tiles
+BAR_LENGTHS = (4, 5, 7)            # cells a bar piece spans: a clip plate at each end, a bar of 3L, 4L, 6L between
+BAR_HALF = 0.2                     # half the bar's width in cells (a 3.18 mm bar on an 8 mm pitch)
 
 
 @dataclass(frozen=True)
@@ -54,7 +60,9 @@ class PieceType:
 
     @property
     def rotations(self) -> Tuple[int, ...]:
-        return (0,) if self.form == "round" else (0, 1, 2, 3)
+        if self.form == "round":
+            return (0,)
+        return (0, 1) if self.form in ("tile", "bar") else (0, 1, 2, 3)
 
     def footprint(self, rot: int) -> Tuple[int, int]:
         """(w, d): cells along x and y in turn `rot`."""
@@ -77,6 +85,11 @@ class PieceType:
         if self.form == "dome":
             r = np.sqrt(u ** 2 + v ** 2) / L
             return np.where(r <= 1.0, LIP + (1.0 - LIP) * np.sqrt(np.clip(1.0 - r ** 2, 0, 1)), 0.0)
+        if self.form == "tile":
+            return np.ones_like(u)
+        if self.form == "bar":                       # the clip plates at both ends, the bar along the middle
+            end = (u <= 1.0) | (u >= L - 1.0)
+            return np.where(end | (np.abs(v - W / 2.0) <= BAR_HALF), 1.0, 0.0)
         raise ValueError(self.form)
 
 
@@ -96,6 +109,11 @@ def _catalogue() -> Tuple[PieceType, ...]:
         out.append(PieceType(f"islope_{L}x{W}", "inverted", f"inverted slope {L}x{W}", "slope", L, W, True))
     for L, W in ((1, 1), (2, 1), (3, 1), (2, 2)):
         out.append(PieceType(f"icurve_{L}x{W}", "inverted", f"inverted curve {L}x{W}", "curve", L, W, True))
+    # details (lego_engine.details): not fitted to the surface - laid by rule
+    for L, W in TILE_SIZES:
+        out.append(PieceType(f"tile_{L}x{W}", "tile", f"tile {W}x{L}", "tile", L, W))
+    for L in BAR_LENGTHS:
+        out.append(PieceType(f"bar_{L}", "bar", f"bar {L - 1}L on 2 clips", "bar", L, 1))
     return tuple(out)
 
 
@@ -189,6 +207,8 @@ def cell_props(key: str, rot: int, seat_min: float = 0.0) -> Tuple[np.ndarray, n
             else:
                 studs[a, b] = bool((h >= 0.999).all())       # a flat top at full height
                 seats[a, b] = bool((h > max(0.0, seat_min)).all())
+    if t.form == "tile":                                     # smooth on top: nothing holds on a tile
+        studs[:] = False
     return studs, seats
 
 
@@ -467,6 +487,13 @@ def outline(key: str, pitch: float, height: float, clearance: float = 0.0, n: in
     if t.form == "round":
         return {"op": "cylinder", "centre": (L * pitch / 2, W * pitch / 2), "radius": L * pitch / 2 - c,
                 "height": height, "curve": None}
+    if t.form == "tile":
+        poly = [(c, c), (L * pitch - c, c), (L * pitch - c, W * pitch - c), (c, W * pitch - c)]
+        return {"op": "extrude_z", "poly": poly, "height": height, "curve": None}
+    if t.form == "bar":                              # two 1x1 clip plates and the bar between them, at mid-height
+        ends = [(c, c, pitch - c, W * pitch - c), ((L - 1) * pitch + c, c, L * pitch - c, W * pitch - c)]
+        return {"op": "bar", "ends": ends, "height": height, "radius": BAR_HALF * pitch,
+                "x0": 0.5 * pitch, "x1": (L - 0.5) * pitch, "yc": W * pitch / 2, "zc": height / 2, "curve": None}
     if t.form == "dome":
         R = L * pitch - 2 * c
         rs = np.linspace(1, 0, n * L + 1)

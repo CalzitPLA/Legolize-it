@@ -112,7 +112,8 @@ legolize-it cli part.step --studs 24 --unit plate --shapes all --special --stl l
 python3 -m lego_engine --help        # the same without the installed command
 ```
 
-`--shapes` takes `slope, curve, round, dome, inverted`, `all` or `none` (the default); `--special [TOL]` adds special
+`--shapes` takes `slope, curve, round, dome, inverted`, `all` or `none` (the default); `--details` takes `tiles, rods,
+bars`, `all` or `none` (the default) - parts for a set-like look, below; `--special [TOL]` adds special
 pieces where the best brick or piece leaves more than TOL of a cell wrong (0.3); `--colours` auto (default), source,
 size, layer, mixed, random, rainbow, fade (`--fade ocean`), single (`--single blue`); `--stud-play` the fit.
 
@@ -193,6 +194,15 @@ special pieces are listed apart (no standard pack). Shipping to Germany 5.95 EUR
    the best brick or piece leaves more than the tolerance wrong get the input cut to the cell (manifold3d for a closed
    mesh; exact B-rep in FreeCAD for a STEP), joined into rectangles per layer. Measured 2026-11-12, deviation from the
    part: sphere 12 studs 12.9 % (bricks) -> 8.8 % (shaped), 24 studs 6.3 -> 4.4 %; the logo's mushroom (24) 26 -> 19 %.
+   **Details** (`details.py`, optional, `--details`; in the window: *Pieces > Details*): parts laid by rule, not
+   fitted to the surface, so a model looks like a set rather than a stack of bricks. *Tiles*: plates with nothing on
+   top become tiles of their size (1x1 ... 1x8, 2x2 ... 2x6; plate layers only - larger plates stay studded).
+   *Rods*: free-standing 1x1 columns, three layers or more, become round 1x1 plates or bricks (posts, supports).
+   *Bars*: a straight run of 4, 5 or 7 cells standing free in its layer (nothing beside, above or below its middle)
+   whose ends hold becomes a bar 3L, 4L or 6L on two clip plates - one piece with a stud and a seat at each end only,
+   laid before the bricks. Tiles and rods keep every brick's place, so the cover, the colours and how the model holds
+   do not change (nothing sits on a tile). The manual draws tiles with an inner edge and no studs, a bar as a line
+   between its two clips.
 4. **Layout** (`layout.py`): per layer, the first free cell in scan order anchors the brick with the best score: area,
    + bridging two or three bricks below, + the layer's direction (layers cross), - ending on a joint of the layer below
    (running bond). Repair passes (`layout_connected`): where two groups touch side by side without holding together

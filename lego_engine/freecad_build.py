@@ -103,6 +103,13 @@ def wire_of(points, curve):
 
 
 def outline_shape(o):
+    if o["op"] == "bar":                                    # end boxes and a bar along x between their centres
+        shape = None
+        for x0, y0, x1, y1 in o["ends"]:
+            box = Part.makeBox(x1 - x0, y1 - y0, o["height"], V(x0, y0, 0))
+            shape = box if shape is None else shape.fuse(box)
+        rod = Part.makeCylinder(o["radius"], o["x1"] - o["x0"], V(o["x0"], o["yc"], o["zc"]), V(1, 0, 0))
+        return shape.fuse(rod).removeSplitter()
     if o["op"] == "cylinder":
         x, y = o["centre"]
         return Part.makeCylinder(o["radius"], o["height"], V(x, y, 0))

@@ -89,12 +89,22 @@ def _plan(model, k: int, colours: np.ndarray, unit_cm: float, special_no: Dict[i
         elif t is not None and t.form == "round":
             lines.append(rf"\filldraw[fill={col}, draw=black, line width=0.5pt] ({b.i + b.w / 2:.2f},"
                          rf"{b.j + b.d / 2:.2f}) circle ({b.w / 2 - 0.06:.2f});")
+        elif t is not None and t.form == "bar":                       # two clip plates, the bar between them
+            (ax, ay), (ex, ey) = (b.i, b.j), (b.i + b.w - 1, b.j + b.d - 1)
+            lines.append(rf"\draw[black, line width=3.2pt] ({ax + 0.5},{ay + 0.5}) -- ({ex + 0.5},{ey + 0.5});")
+            lines.append(rf"\draw[{col}, line width=2.2pt] ({ax + 0.5},{ay + 0.5}) -- ({ex + 0.5},{ey + 0.5});")
+            for cx, cy in ((ax, ay), (ex, ey)):
+                lines.append(rf"\filldraw[fill={col}, draw=black, line width=0.5pt] ({cx + 0.06:.2f},{cy + 0.06:.2f})"
+                             rf" rectangle ({cx + 0.94:.2f},{cy + 0.94:.2f});")
         else:
             style = "pattern=north east lines, pattern color=black!45, " if b.is_special else ""
             lines.append(rf"\filldraw[fill={col}, draw=black, line width=0.5pt] ({x0:.2f},{y0:.2f}) rectangle "
                          rf"({x1:.2f},{y1:.2f});")
             if style:
                 lines.append(rf"\fill[{style}] ({x0:.2f},{y0:.2f}) rectangle ({x1:.2f},{y1:.2f});")
+            if t is not None and t.form == "tile":                     # a tile: smooth, an inner edge
+                lines.append(rf"\draw[{stud_ink}, line width=0.3pt] ({x0 + 0.12:.2f},{y0 + 0.12:.2f}) rectangle "
+                             rf"({x1 - 0.12:.2f},{y1 - 0.12:.2f});")
         if b.is_brick or (t is not None and t.form != "round") or b.is_special:
             for a in range(b.i, b.i + b.w):
                 for q in range(b.j, b.j + b.d):
