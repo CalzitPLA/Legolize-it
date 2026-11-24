@@ -133,6 +133,45 @@ names, users and keys itself; BatchMode, so a key or an agent is needed); the se
 `~/.config/legolize-it/servers.json` (mode 600), never in the repository or in results; the returned files are
 rewritten to name the local input and folder, not the server's.
 
+## Buying the parts (BlueBrixx)
+
+```bash
+legolize-it shop crawl                     # the shop's standard brick and plate packs (1x1 .. 2x8), ~15 minutes
+legolize-it cli part.ply --scale 1 --unit plate --cheapest --order de --manual --out out/
+#   --cheapest   per colour the brick sizes whose order costs least - same grid, same cells
+#                (--max-parts N keeps the count down; the sizes found: --colour-sizes 'white:2x4,1x2;red:1x2')
+#   out/order/   order.tex, order.pdf, order.md, order.csv: one line per pack (item number, part, colour, packs)
+legolize-it shop order Coaster=out1/result.json Brush=out2/manual/manual.tex --lang de --out order/   # one order
+legolize-it shop plan plan.json --manual --out out/   # several builds in shared colours, bought together (below)
+```
+
+[BlueBrixx](https://www.bluebrixx.com) sells *part packs*: one part in one colour, e.g. "BRICK 2X4 X 50" for 4.95 EUR,
+XL packs of 300-600 pieces for about 20 EUR. Every kind of part a model needs (size and colour) costs at least one
+whole pack, so the bill depends on how many kinds there are much more than on how many bricks. `--cheapest` therefore
+searches the brick sizes **per colour**: each colour starts with the sizes the shop sells in it (so the shop can fill
+the order), then sizes are dropped from a colour while that lowers the price and the model holds together no worse -
+an accent colour ends up with one or two sizes, the main colour keeps the big bricks. A model with a few more, smaller
+bricks is often the cheaper one. Few colours, and hidden inner cells in a colour the model shows anyway, save more.
+
+Builds bought together share packs, and they share more in the same colours: `--recolour 'white:light_bluish_grey,
+dark_blue:dark_bluish_grey'` builds a model's colours in others, and `shop plan` takes several builds with their
+colours as roles (0 light, 1 dark; colours not listed go by their lightness), tries colour pairs and searches the
+sizes per colour over all builds at once - the
+price of the one order, ties to the order whose packs are used most fully (the order list shows the usage per pack):
+
+```json
+{"pairs": [["light_bluish_grey", "dark_bluish_grey"], ["white", "black"]],
+ "builds": [{"name": "Coaster", "input": "coaster.ply", "args": "--scale 1 --unit plate", "max_parts": 400,
+             "roles": {"white": 0, "dark_blue": 1}}, ...]}
+```
+
+The catalogue (`~/.cache/legolize/bluebrixx/catalogue.json`) is a snapshot: the listings of partpacks/bricks and
+partpacks/plates, then the head of each standard pack's page (its colour is only there: `BPP<design>-<colour>`, and
+whether it is in stock). One request a second; robots.txt allows these pages; an interrupted crawl resumes. Prices and
+stock change - the order list prints the snapshot's date and links every pack. In 2026-11 all in-stock brick and
+plate packs were marked *available exclusively online*: the list flags them (not in the stores). Shaped pieces and
+special pieces are listed apart (no standard pack). Shipping to Germany 5.95 EUR, free from 99 EUR.
+
 ## How it works
 
 1. **Placement** (`voxelize.place`): the part is turned so its up axis is +z, scaled (studs along the longest

@@ -18,7 +18,10 @@ Read `README.md` (use, pipeline, limits) and `docs/CODEMAP.md` (modules, data fl
 - Command line: `python3 -m lego_engine part.step --studs 24 --unit plate --shapes all --special --stl layers --fcstd
   --manual --out DIR [--png P] [--server HOST]`; servers: `python3 -m lego_engine.remote list|add|check|sync`.
 - Logo: `python3 packaging/logo/make_logo.py` (~1.5 min; `--quick` for a 512 px look).
-- Installed: `legolize-it`, `legolize-it cli ...`, `legolize-it check`.
+- Installed: `legolize-it`, `legolize-it cli ...`, `legolize-it check`, `legolize-it shop crawl|order ...`.
+- Buying (BlueBrixx): `python3 -m lego_engine.shop crawl` (catalogue to ~/.cache/legolize/bluebrixx/, ~15 min,
+  resumes), then `--cheapest --order de` on the command line, or `python3 -m lego_engine.shop order
+  NAME=result.json|manual.tex ... --lang de --out DIR` for one order over several builds.
 
 ## Facts measured here (don't re-derive)
 
@@ -76,6 +79,29 @@ Read `README.md` (use, pipeline, limits) and `docs/CODEMAP.md` (modules, data fl
   renders on the CPU with adaptive sampling (384 samples, ~80 s at 1024 px). trimesh rejects binary PLY with mixed
   quads and triangles: the Blender model exports triangles only. AgX pales the plastic colours: the logo uses
   "Standard" with exposure -0.9.
+
+- BlueBrixx part packs (2026-11-24): one part in one colour per pack; the colour is only on the product page, as
+  `itemprop="mpn"` content `BPP<design>-<colour>` with BrickLink-like names (light_bluish_gray, medium_dark_flesh) and
+  the attribute split over two lines; the "Available exclusively online" note comes after an SVG icon of ~560 chars
+  (a 400-char window missed every one). All in-stock brick and plate packs carried it - not sold in the stores.
+  Everything needed is in the first ~225 kB of a page (240 kB are read). robots.txt allows /en/partpacks/ and /en/prod/.
+- Cheapest sizes (2026-11-24): a global catalogue is not enough - a size used in six colours is six packs (the
+  palette brush, 6 colours: 272.80 EUR / 24 packs with the cheapest global catalogue, 144.85 EUR with sizes per
+  colour; kinderwagen 135.30 -> 124.30, excavator 111.45 -> 91.45 at --studs 21). Hence `LegoSettings.colour_sizes`
+  (the layout uses a size in a colour only where allowed; a hidden brick takes a colour that has its size). The search
+  starts each colour with the sizes the shop sells in it (no missing parts), then drops sizes per colour. A
+  single-size greedy stalls: on a wall, dropping 1x8 made the layout use 1x3 (not sold), so neither drop paid alone -
+  the "keep only the used sizes" move fixes it (tests/test_shop.py). 1x1 always stays (it fills any cell): where the
+  shop has no 1x1 in a colour (silver, yellow, light nougat bricks), the order buys the nearest colour it has
+  ("statt ..."). Fewer sizes mean more bricks: --max-parts caps it (the coaster: ~300 asked, 327 at 330).
+- Two colours for five builds bought together (`shop plan`, 2026-11-24; coaster, palette brush, excavator,
+  kinderwagen, squirrel): light + dark bluish grey 164.60 EUR / 28 packs / 62 % of the pieces used; light grey +
+  black 185.55; white + dark grey 192.75; tan + dark tan 202.65; white + black 214.70 (the greys come in all 11
+  sizes as bricks and plates, cheapest per piece). Below 100 EUR was not reached at the same resolution. A colour
+  missing from a build's roles slipped through as a third colour (the squirrel's tail tip snapped to medium nougat:
+  three packs, one of them for a single brick) - plan now gives every palette colour a role (else by lightness).
+- Hidden inner cells take the nearest surface's colour: a model whose inner layer lies under a coloured pattern
+  needs those cells kept in the main colour, or it buys packs of colours nobody sees.
 
 ## Working style
 

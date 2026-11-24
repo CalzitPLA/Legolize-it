@@ -54,10 +54,16 @@ class LegoSettings:
     snap_colours: bool = True              # mode "source": snap the surface colours to the brick palette
     deflection: float = 0.05               # STEP tessellation, mm
     system: BrickSystem = field(default_factory=BrickSystem)
+    colour_sizes: Tuple[Tuple[str, Tuple[Tuple[int, int], ...]], ...] = ()   # per palette colour the brick sizes it
+                                           # may use (those a shop sells in it - lego_engine.shop); others: `sizes`
+    recolour: Tuple[Tuple[str, str], ...] = ()   # source colours: palette colour -> the one to build it in (after
+                                           # snapping; e.g. a model in two colours, to share packs with others)
 
     def to_dict(self) -> Dict:
         d = asdict(self)
         d["sizes"] = [list(s) for s in self.sizes]
+        d["colour_sizes"] = {c: [list(s) for s in sz] for c, sz in self.colour_sizes}
+        d["recolour"] = dict(self.recolour)
         return d
 
     @classmethod
@@ -66,6 +72,13 @@ class LegoSettings:
         d["system"] = BrickSystem.from_dict(d.get("system", {}))
         if "sizes" in d:
             d["sizes"] = tuple(tuple(s) for s in d["sizes"])
+        if "colour_sizes" in d:
+            cs = d["colour_sizes"]
+            d["colour_sizes"] = tuple((c, tuple(tuple(s) for s in sz)) for c, sz in (cs.items() if isinstance(cs, dict)
+                                                                                     else cs))
+        if "recolour" in d:
+            rc = d["recolour"]
+            d["recolour"] = tuple(sorted((rc.items() if isinstance(rc, dict) else (tuple(x) for x in rc))))
         if "shapes" in d:
             d["shapes"] = parse_families(d["shapes"])
         if isinstance(d.get("thin_walls"), bool):                     # results of 2026-11-11 stored a bool
@@ -239,9 +252,12 @@ class Legolizer:
         labels = None
         if settings.colour_mode in ("source", "auto") and cell_colours is not None and cell_colours[1] is not None:
             labels = cell_colours[1]                     # visible cells: one colour per brick (a mosaic's rule)
-        model = layout_connected(occ, sizes, 0, settings.bridge_weight, labels=labels, pieces=pieces)
+        colour_sizes = colour_size_map(settings, sizes) if labels is not None else None
+        model = layout_connected(occ, sizes, 0, settings.bridge_weight, labels=labels, pieces=pieces,
+                                 colour_sizes=colour_sizes)
         if pieces:
-            model, occ, dropped = self._drop_floating_pieces(model, occ, base_occ, pieces, sizes, settings, labels)
+            model, occ, dropped = self._drop_floating_pieces(model, occ, base_occ, pieces, sizes, settings, labels,
+                                                             colour_sizes=colour_sizes)
             if dropped:
                 self.say(f"{dropped} pieces that would not hold were replaced by bricks")
         if any(b.is_special for b in model.bricks):
@@ -279,7 +295,8 @@ class Legolizer:
                            "total_s": round(time.time() - t0, 3)})
 
     @staticmethod
-    def _drop_floating_pieces(model, occ, base_occ, pieces, sizes, settings, labels, rounds: int = 2):
+    def _drop_floating_pieces(model, occ, base_occ, pieces, sizes, settings, labels, rounds: int = 2,
+                              colour_sizes=None):
         """Pieces that do not hold go: those in floating groups, and those in groups without a single brick (they hold
         only on each other, or stand alone on the ground - 2026-11-12: the special pieces along a cylinder's round
         bottom edge, too little material at their faces for a stud, were 8 "groups" of one piece each). Their cells
@@ -308,7 +325,8 @@ class Legolizer:
             pieces = keep
             if labels is not None:
                 labels = np.where(occ, labels, -2)
-            model = layout_connected(occ, sizes, 0, settings.bridge_weight, labels=labels, pieces=pieces)
+            model = layout_connected(occ, sizes, 0, settings.bridge_weight, labels=labels, pieces=pieces,
+                                     colour_sizes=colour_sizes)
         return model, occ, dropped
 
     @staticmethod
@@ -330,7 +348,14 @@ class Legolizer:
         from scipy import ndimage
         inside = ndimage.binary_erosion(occ, structure=ndimage.generate_binary_structure(3, 1), border_value=0)
         labels = np.full(occ.shape, -2, np.int32)
-        labels[tuple(cells.T)] = snap_index(col)
+        idx = snap_index(col)
+        if settings.recolour:                            # the colours to build in
+            to = np.arange(len(NAMES))
+            for src, dst in settings.recolour:
+                if src in NAMES and dst in NAMES:
+                    to[NAMES.index(src)] = NAMES.index(dst)
+            idx = to[idx]
+        labels[tuple(cells.T)] = idx
         snapped = labels.copy()
         labels[inside] = -1
         return colours, labels, snapped
@@ -339,10 +364,13 @@ class Legolizer:
     def _source_colours(model: BrickModel, cell_colours, settings: LegoSettings) -> Optional[np.ndarray]:
         """Per brick: with snapping the palette colour most of its visible cells have (all its cells if none is
         visible) - a majority, not a mean, so a brick at a border does not turn into a mix of both sides; without
-        snapping the mean colour of its cells. None for an input without colours."""
+        snapping the mean colour of its cells. None for an input without colours. With `colour_sizes` a brick nobody
+        sees takes the most common colour of its cells that comes in its size, else the model's most common such."""
         if not model.bricks or cell_colours is None:
             return None
         colours = cell_colours[0]
+        cs = colour_size_map(settings, model.sizes) if cell_colours[1] is not None else None
+        common = None
         out = np.zeros((len(model.bricks), 3))
         for n, b in enumerate(model.bricks):
             sl = (slice(b.i, b.i + b.w), slice(b.j, b.j + b.d), b.layer)
@@ -354,8 +382,31 @@ class Legolizer:
             if not pick.size:
                 pick = cell_colours[2][sl].ravel()
                 pick = pick[pick >= 0]
+                if cs and b.is_brick:
+                    key = (min(b.w, b.d), max(b.w, b.d))
+                    if common is None:
+                        seen = np.bincount(cell_colours[2][cell_colours[2] >= 0], minlength=len(NAMES))
+                        common = [c for c in np.argsort(-seen) if seen[c]]          # the model's colours only
+                    counts = np.bincount(pick, minlength=len(NAMES))
+                    ok = [c for c in np.argsort(-counts) if counts[c] and key in cs.get(int(c), (key,))]
+                    ok = ok or [c for c in common if key in cs.get(int(c), (key,))]
+                    if ok:
+                        out[n] = PALETTE[NAMES[int(ok[0])]]
+                        continue
             out[n] = PALETTE[NAMES[int(np.bincount(pick).argmax())]]
         return out
+
+
+def colour_size_map(settings: LegoSettings, sizes) -> Optional[Dict[int, frozenset]]:
+    """settings.colour_sizes as {palette index: frozenset of (short, long)} within `sizes` (1x1 always), or None."""
+    if not settings.colour_sizes:
+        return None
+    allowed = {(min(a, b), max(a, b)) for a, b in sizes}
+    out = {}
+    for name, sz in settings.colour_sizes:
+        if name in NAMES:
+            out[NAMES.index(name)] = frozenset({(min(a, b), max(a, b)) for a, b in sz} & allowed | {(1, 1)})
+    return out
 
 
 def run(settings: LegoSettings, progress=None) -> LegoResult:
