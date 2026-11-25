@@ -2,8 +2,8 @@
 
 `settings()` returns a lego_engine.pipeline.LegoSettings. `changed(level)` says what a change costs: "layout" (threshold,
 shell, catalogue, pieces, colours - redone at once), "voxelize" (size, unit, up axis, sampling, system) or "load" (the
-file). The window starts with shaped and special pieces on (the engine's and the command line's default is bricks only,
-so their results stay as they were).
+file). The window starts with shaped and special pieces and the details (tiles, rods, bars) on (the engine's and the
+command line's default is bricks only, so their results stay as they were).
 """
 from __future__ import annotations
 
@@ -14,11 +14,34 @@ from PyQt5 import QtCore, QtWidgets
 
 from lego_engine.mesh_io import UP_AXES
 from lego_engine.pipeline import LegoSettings
+from lego_engine.details import DETAILS
 from lego_engine.shapes import FAMILIES
-from lego_engine.system import DEFAULT_SIZES, BrickSystem
+from lego_engine.catalogues import CATALOGUES, SIZES, available, restrict, size_id
+from lego_engine.system import BrickSystem
 
-ALL_SIZES = ((1, 1), (1, 2), (1, 3), (1, 4), (1, 6), (1, 8), (1, 10), (1, 12),
-             (2, 2), (2, 3), (2, 4), (2, 6), (2, 8), (2, 10), (2, 12), (4, 4), (4, 6), (4, 8))
+from .parts_dialog import PartsDialog, range_note
+
+ALL_SIZES = SIZES
+# Modes: presets for the switches that make the look - the algorithm (exact / artsy), the longest brick, the kinds of
+# pieces (shaped, special, details). Choosing one sets them all; changing one of them by hand shows "custom". Which
+# single parts there are is the Catalogue's business (a range and parts switched off): a mode keeps it.
+MODES = {
+    "bricky": dict(label="Bricky - plain bricks, as close to the part as the cells allow", style="exact", shapes=(),
+                   special=False, details=(), max_length=8),
+    "detailed": dict(label="Detailed - shaped and printed pieces where they fit better, smooth tops", style="exact",
+                     shapes=FAMILIES, special=True, details=DETAILS, max_length=8),
+    "artsy": dict(label="Artsy - built with craft: axle stacks, printed details, symmetry, larger parts", style="artsy",
+                  shapes=(), special=False, details=DETAILS, max_length=12,
+                  artsy_symmetry=True, artsy_axles=True, artsy_printed=True),
+}
+MODE_TIPS = {
+    "bricky": "the classic look: plain bricks (or plates), nothing shaped, nothing printed",
+    "detailed": "as close to the part as possible: slopes, curves, round and dome pieces where they fit, printed special "
+                "pieces where nothing else does, tiles on top, round rods, bars on clips",
+    "artsy": "craftsmanship before accuracy: round bodies as parts threaded on Technic axles, small details printed, "
+             "mirror symmetry, no stray cells or colour specks, larger parts, tiles, rods and bars",
+    "custom": "your own mix: change the mode to set all switches again",
+}
 FILE_FILTER = "Parts (*.stl *.STL *.step *.STEP *.stp *.STP *.obj *.ply *.off *.3mf *.glb);;All files (*)"
 
 
@@ -32,6 +55,49 @@ class SettingsPanel(QtWidgets.QWidget):
         d = LegoSettings()
         s = d.system
         root = QtWidgets.QVBoxLayout(self)
+
+        g = QtWidgets.QGroupBox("Mode")
+        f = QtWidgets.QVBoxLayout(g)
+        self.mode = QtWidgets.QComboBox()
+        for key in ("bricky", "detailed", "artsy"):
+            self.mode.addItem(MODES[key]["label"].split(" - ")[0], key)
+        self.mode.addItem("Custom", "custom")
+        self.mode.setToolTip("presets for the bricks and pieces (below): the algorithm, the brick catalogue, the shaped, "
+                             "special and detail pieces - choosing one checks and unchecks them all")
+        self.mode_note = QtWidgets.QLabel()
+        self.mode_note.setWordWrap(True)
+        self.mode_note.setStyleSheet("QLabel { color: palette(mid); }")
+        self.mode.currentIndexChanged.connect(self._mode_chosen)
+        f.addWidget(self.mode)
+        f.addWidget(self.mode_note)
+        root.addWidget(g)
+        self._applying = False
+
+        g = QtWidgets.QGroupBox("Catalogue")
+        f = QtWidgets.QVBoxLayout(g)
+        row = QtWidgets.QHBoxLayout()
+        self.parts_range = QtWidgets.QComboBox()
+        for name, c in CATALOGUES.items():
+            self.parts_range.addItem(c.label, name)
+        self.parts_range.setToolTip("which parts there are: Standard - every part Legolize it can lay, to print; LEGO "
+                                    "- the sizes and parts LEGO sells single; BlueBrixx - the brick and plate sizes "
+                                    "of its part packs")
+        self.parts_range.currentIndexChanged.connect(self._range_changed)
+        self.parts_button = QtWidgets.QPushButton("Parts ...")
+        self.parts_button.setToolTip("every part with a checkbox: switch single parts off (sizes, tiles, rods, bars, "
+                                     "shaped pieces, Technic parts)")
+        self.parts_button.clicked.connect(self.open_parts)
+        row.addWidget(self.parts_range, 1)
+        row.addWidget(self.parts_button)
+        f.addLayout(row)
+        self.range_note = QtWidgets.QLabel()
+        self.range_note.setWordWrap(True)
+        self.range_note.setOpenExternalLinks(True)
+        self.range_note.setTextFormat(QtCore.Qt.RichText)
+        self.range_note.setStyleSheet("QLabel { color: palette(mid); }")
+        f.addWidget(self.range_note)
+        root.addWidget(g)
+        self.parts_off = set()                         # parts switched off by hand (ids of lego_engine.catalogues)
 
         g = QtWidgets.QGroupBox("Input")
         f = QtWidgets.QFormLayout(g)
@@ -112,18 +178,6 @@ class SettingsPanel(QtWidgets.QWidget):
         self.bridge = self._dspin(0.0, 5.0, d.bridge_weight, 2, 0.25, "layout", "how strongly a brick should span "
                                   "the seams of the layer below (interlocking)")
         f.addRow("Interlock", self.bridge)
-        grid = QtWidgets.QGridLayout()
-        self.size_checks = {}
-        for n, (a, b) in enumerate(ALL_SIZES):
-            box = QtWidgets.QCheckBox(f"{a}x{b}")
-            box.setChecked((a, b) in DEFAULT_SIZES)
-            if (a, b) == (1, 1):
-                box.setEnabled(False)                  # always there: every cell can be covered
-                box.setChecked(True)
-            box.toggled.connect(lambda _v: self.changed.emit("layout"))
-            self.size_checks[(a, b)] = box
-            grid.addWidget(box, n // 4, n % 4)
-        f.addRow("Catalogue", grid)
         self.snap = QtWidgets.QCheckBox("snap to brick colours")
         self.snap.setToolTip("colours from the input: the nearest colour bricks come in (else the input's own)")
         self.snap.setChecked(d.snap_colours)
@@ -133,6 +187,26 @@ class SettingsPanel(QtWidgets.QWidget):
 
         g = QtWidgets.QGroupBox("Pieces")
         f = QtWidgets.QFormLayout(g)
+        self.style = QtWidgets.QComboBox()
+        self.style.addItem("exact - as close to the part as the cells allow", "exact")
+        self.style.addItem("artsy - built with craft (axles, printed details, symmetry)", "artsy")
+        self.style.setToolTip("artsy: round bodies as parts threaded on an axle, small details printed, mirror symmetry "
+                              "where the part nearly has it, no stray cells or colour specks (lego_engine.artsy)")
+        self.style.currentIndexChanged.connect(lambda _i: (self._style_changed(), self.changed.emit("layout")))
+        f.addRow("Style", self.style)
+        row = QtWidgets.QHBoxLayout()
+        self.artsy_symmetry = QtWidgets.QCheckBox("symmetry")
+        self.artsy_axles = QtWidgets.QCheckBox("axle stacks")
+        self.artsy_printed = QtWidgets.QCheckBox("printed details")
+        for box, tip in ((self.artsy_symmetry, "mirror planes where the part nearly has them"),
+                         (self.artsy_axles, "round bodies as round parts, gears, discs, rims threaded on an axle"),
+                         (self.artsy_printed, "small detailed parts (about a brick) as printed pieces")):
+            box.setChecked(True)
+            box.setToolTip(tip)
+            box.toggled.connect(lambda _v: self.changed.emit("layout"))
+            row.addWidget(box)
+        f.addRow("Artsy", row)
+        self._style_changed()
         grid = QtWidgets.QGridLayout()
         self.family_checks = {}
         for n, (fam, label, tip) in enumerate((
@@ -148,6 +222,20 @@ class SettingsPanel(QtWidgets.QWidget):
             self.family_checks[fam] = box
             grid.addWidget(box, n // 3, n % 3)
         f.addRow("Shaped", grid)
+        grid = QtWidgets.QGridLayout()
+        self.detail_checks = {}
+        for n, (key, label, tip) in enumerate((
+                ("tiles", "tiles", "plates with nothing on top become tiles: smooth tops (plate layers only)"),
+                ("rods", "rods", "free-standing 1x1 columns (3 layers or more) become round 1x1 plates or bricks"),
+                ("bars", "bars", "free-standing straight runs of 4, 5 or 7 cells become a bar (3L, 4L, 6L) held by a "
+                                 "clip plate at each end"))):
+            box = QtWidgets.QCheckBox(label)
+            box.setChecked(True)
+            box.setToolTip(tip + " - for a set-like look (lego_engine.details)")
+            box.toggled.connect(lambda _v: self.changed.emit("layout"))
+            self.detail_checks[key] = box
+            grid.addWidget(box, 0, n)
+        f.addRow("Details", grid)
         self.special = QtWidgets.QCheckBox("exact shape, printed")
         self.special.setChecked(True)
         self.special.setToolTip("where neither a brick nor a shaped piece comes close, a custom piece carries the "
@@ -255,6 +343,16 @@ class SettingsPanel(QtWidgets.QWidget):
         self.go.clicked.connect(self.legolize.emit)
         root.addWidget(self.go)
         root.addStretch(1)
+        # a hand-made change to a switch a mode sets shows "custom"
+        linked = [self.style, self.artsy_symmetry, self.artsy_axles, self.artsy_printed, self.special, self.max_length]
+        linked += list(self.family_checks.values()) + list(self.detail_checks.values())
+        for w in linked:
+            sig = w.currentIndexChanged if isinstance(w, QtWidgets.QComboBox) else \
+                w.valueChanged if isinstance(w, QtWidgets.QSpinBox) else w.toggled
+            sig.connect(self._linked_changed)
+        self.unit.currentIndexChanged.connect(lambda _i: self._show_range())
+        self.set_mode("detailed")                  # the window's start (shaped, special and detail pieces on)
+        self._show_range()
 
     def _dspin(self, lo, hi, value, decimals, step, level, tip=""):
         spin = QtWidgets.QDoubleSpinBox()
@@ -295,6 +393,87 @@ class SettingsPanel(QtWidgets.QWidget):
         from lego_gui.servers import ServersDialog
         ServersDialog(self).exec_()
         self.refresh_servers()
+
+    def set_mode(self, key: str, emit: bool = False):
+        """Check and uncheck the switches of mode `key` (MODES) at once; "custom" leaves them as they are."""
+        idx = self.mode.findData(key)
+        self.mode.blockSignals(True)
+        self.mode.setCurrentIndex(max(0, idx))
+        self.mode.blockSignals(False)
+        self.mode_note.setText(MODE_TIPS.get(key, ""))
+        m = MODES.get(key)
+        if m is None:
+            return
+        self._applying = True
+        was = self.blockSignals(True)            # one "layout" for the whole mode, not one per box
+        try:
+            self.style.setCurrentIndex(max(0, self.style.findData(m["style"])))
+            for fam, box in self.family_checks.items():
+                box.setChecked(fam in m["shapes"])
+            for k, box in self.detail_checks.items():
+                box.setChecked(k in m["details"])
+            self.special.setChecked(m["special"])
+            self.max_length.setValue(m["max_length"])
+            self.artsy_symmetry.setChecked(m.get("artsy_symmetry", True))
+            self.artsy_axles.setChecked(m.get("artsy_axles", True))
+            self.artsy_printed.setChecked(m.get("artsy_printed", True))
+            self._style_changed()
+        finally:
+            self.blockSignals(was)
+            self._applying = False
+        if emit:
+            self.changed.emit("layout")
+
+    def _show_range(self):
+        """The range's note and link, and how many of its parts are on."""
+        name, unit = self.parts_range.currentData(), self.unit.currentData()
+        avail = available(name, unit)
+        on = len(avail - self.parts_off)
+        self.parts_button.setText(f"Parts ... ({on} of {len(avail)})")
+        self.range_note.setText(range_note(name))
+
+    def _range_changed(self, _i):
+        self._show_range()
+        self.changed.emit("layout")
+
+    def open_parts(self):
+        """The parts dialog: the range and every part with a checkbox."""
+        dlg = PartsDialog(self, self.parts_range.currentData(), self.unit.currentData(), self.parts_off)
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            self.set_parts(dlg.parts_range(), dlg.off)
+
+    def set_parts(self, parts_range: str, off):
+        """The range and the parts switched off (as the dialog gives them); one redo, the mode stays."""
+        self.parts_range.blockSignals(True)
+        self.parts_range.setCurrentIndex(max(0, self.parts_range.findData(parts_range)))
+        self.parts_range.blockSignals(False)
+        self.parts_off = set(off)
+        self._show_range()
+        self.changed.emit("layout")
+
+    def _mode_chosen(self, _i):
+        self.set_mode(self.mode.currentData(), emit=True)
+
+    def _linked_changed(self, *_a):
+        if not self._applying and self.mode.currentData() != "custom":
+            self.mode.blockSignals(True)
+            self.mode.setCurrentIndex(self.mode.findData("custom"))
+            self.mode.blockSignals(False)
+            self.mode_note.setText(MODE_TIPS["custom"])
+
+    def mode_of(self, s: LegoSettings) -> str:
+        """The mode whose switches `s` has, or "custom"."""
+        for key, m in MODES.items():
+            if (s.style == m["style"] and set(s.shapes) == set(m["shapes"]) and s.special == m["special"]
+                    and set(s.details) == set(m["details"])
+                    and s.max_length == m["max_length"]):
+                return key
+        return "custom"
+
+    def _style_changed(self):
+        on = self.style.currentData() == "artsy"
+        for box in (self.artsy_symmetry, self.artsy_axles, self.artsy_printed):
+            box.setEnabled(on)
 
     def _special_tol_changed(self, v):
         self.special_tol_label.setText(f"{v / 100:.2f}")
@@ -354,27 +533,48 @@ class SettingsPanel(QtWidgets.QWidget):
             self.snap.setChecked(s.snap_colours)
             for fam, box in self.family_checks.items():
                 box.setChecked(fam in s.shapes)
+            for key, box in self.detail_checks.items():
+                box.setChecked(key in s.details)
+            self.style.setCurrentIndex(max(0, self.style.findData(s.style)))
+            self.artsy_symmetry.setChecked(s.artsy_symmetry != "off")
+            self.artsy_axles.setChecked(s.artsy_axles)
+            self.artsy_printed.setChecked(s.artsy_printed)
+            self._style_changed()
             self.special.setChecked(s.special)
             self.special_tol.setValue(int(round(s.special_tolerance * 100)))
             self.special_tol_label.setText(f"{s.special_tolerance:.2f}")
             for name, w in self.sys_fields.items():
                 w.setValue(getattr(s.system, name))
-            for k, box in self.size_checks.items():
-                box.setChecked(k in s.sizes or k == (1, 1))
+            name = s.parts_range if s.parts_range in CATALOGUES else "standard"
+            self.parts_range.setCurrentIndex(self.parts_range.findData(name))
+            avail = available(name, s.unit)
+            have = {size_id(*z) for z in s.sizes}
+            self.parts_off = {size_id(*z) for z in SIZES if size_id(*z) in avail and size_id(*z) not in have} | \
+                (set(s.parts_off) & avail)
         finally:
             for w in self.findChildren(QtWidgets.QWidget):
                 w.blockSignals(False)
+        key = self.mode_of(s)
+        self.mode.blockSignals(True)
+        self.mode.setCurrentIndex(self.mode.findData(key))
+        self.mode.blockSignals(False)
+        self.mode_note.setText(MODE_TIPS[key])
+        self._show_range()
 
     def settings(self, colour_mode: str = "auto", fade: str = "sunset", single: str = "red") -> LegoSettings:
         system = replace(BrickSystem(), **{k: float(w.value()) for k, w in self.sys_fields.items()})
+        sizes, parts_off = restrict(self.parts_range.currentData(), self.unit.currentData(), self.parts_off)
         return LegoSettings(
             input=self.path.text().strip(), up=self.up.currentData(), size_mode=self.size_mode.currentData(),
             size=float(self.size.value()), unit=self.unit.currentData(), threshold=self.threshold.value() / 100.0,
             samples=int(self.samples.value()), shell=int(self.shell.value()), thin_walls=self.thin.currentData(),
-            sizes=tuple(k for k, box in self.size_checks.items() if box.isChecked()),
+            sizes=sizes, parts_range=self.parts_range.currentData(), parts_off=parts_off,
             max_length=int(self.max_length.value()), bridge_weight=float(self.bridge.value()),
             colour_mode=colour_mode, fade=fade or "sunset", single_colour=single or "red",
             snap_colours=self.snap.isChecked(),
             shapes=tuple(f for f in FAMILIES if self.family_checks[f].isChecked()),
+            details=tuple(k for k in DETAILS if self.detail_checks[k].isChecked()),
+            style=self.style.currentData(), artsy_symmetry="auto" if self.artsy_symmetry.isChecked() else "off",
+            artsy_axles=self.artsy_axles.isChecked(), artsy_printed=self.artsy_printed.isChecked(),
             special=self.special.isChecked(), special_tolerance=self.special_tol.value() / 100.0,
             deflection=float(self.deflection.value()), system=system)

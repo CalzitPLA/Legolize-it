@@ -10,9 +10,25 @@ it to **FreeCAD** (a coloured document, a solid per part, every stud fit sized f
 **STL stack for 3D printing** (one slab per layer that plugs into the next, or single parts with a parts list) and as
 a **building manual** (LaTeX and PDF, one step per layer). It runs here or **on a server over ssh**.
 
+Legolize it is not affiliated with, sponsored, authorised or endorsed by the LEGO Group or BlueBrixx - see
+[TRADEMARKS.md](TRADEMARKS.md).
+
 The layout follows SHaPe ReCo's: an engine package (`lego_engine/`, like `reco_engine/`), a PyQt5 + VTK window
 (`lego_gui/`, like `reco_gui/`), `install.sh` with a command and a desktop entry, `tests/`, and the logo pipeline in
 `packaging/logo/`.
+
+## Showcase: the ATLAS detector at CERN, artsy
+
+<p align="center"><img src="docs/images/atlas_artsy.jpg" width="860" alt="The ATLAS detector in plates and Technic
+parts: an open octagonal frame with blue chamber panels, eight orange and white striped toroid coils on axles, a black
+and orange calorimeter, tan and blue sectored wheels at both ends, on a dark grey base"></p>
+
+*ATLAS at 1:85 in plates, in artsy mode with the parts LEGO sells: 9,247 parts - 8,573 plates, tiles, round plates
+and bars, 674 Technic™ parts - 57 x 32 x 30 cm. The input is a stylised detector made from the real one's main dimensions,
+inspired by Nathan Readioff's Run-4 ATLAS model ([build-your-own-particle-detector.org](https://build-your-own-particle-detector.org/models/atlas-run-4-model/)):
+the eight toroid coils are 17 axle stacks of orange and white round bricks and plates, held by bricks with an axle hole
+in the frame; the front stays open to show the calorimeter. It holds together as one group, comes with a building
+manual and an order list for LEGO Pick a Brick (about 1,035 EUR on 2026-11-24 - prices change).*
 
 ## What it does
 
@@ -35,11 +51,29 @@ are not connected to the bottom.*
    round corners, round bricks, dome corners and inverted ones go only where they match the part better than the
    bricks; special pieces carry the part's exact shape, to be printed. The window shows how far the model is from the
    part (its *deviation*).
-5. **Parts that stack.** Every stud and what receives it - walls, tubes, posts, sockets - is sized from one
+5. **Three modes** (the window's *Mode*, see the picture below): *bricky* - plain bricks of the common sizes;
+   *detailed* - shaped and special pieces, tiles on top, round rods, bars on clips; *artsy* - craftsmanship before
+   accuracy: round bodies become parts threaded on **Technic™ axles** (round bricks and plates with an axle hole,
+   gears, discs, rims), held by bricks with an axle hole or standing on studs; small detailed parts become printed
+   pieces; mirror symmetry, no stray cells or colour specks, larger parts. The Technic parts are listed as bought in
+   the parts list, the orders and the STL stack (`bought.csv`); the manual builds each axle stack first.
+   **The catalogue** decides which single parts there are, whatever the mode: *Standard* (every part this program can
+   lay, to print), *LEGO®* (the sizes and parts LEGO sells single) or *BlueBrixx™* (the brick and plate sizes of its part
+   packs) - and in it any part can be switched off one by one: a size, a tile, a bar, a shaped piece, a gear, an axle.
+6. **Parts that stack.** Every stud and what receives it - walls, tubes, posts, sockets - is sized from one
    tolerance, the stud play; the FreeCAD export measures stacked parts and finds no overlap and exactly that play.
-6. **Out:** a coloured **FreeCAD** document (a solid per part, a spreadsheet of dimensions), an **STL stack** to
+7. **Out:** a coloured **FreeCAD** document (a solid per part, a spreadsheet of dimensions), an **STL stack** to
    print (a slab per layer that plugs into the next, or single parts), and a **building manual** (LaTeX and PDF,
    below). Heavy runs can go to a **server over ssh**.
+
+<p align="center"><img src="docs/images/modes.png" width="860" alt="The mushroom at 20 studs in plates, in the three
+modes: bricky, detailed and artsy"></p>
+
+*The mushroom at 20 studs in plates. Bricky: 303 plain bricks and plates (21 % of its volume off). Detailed: shaped
+and printed pieces (15 % off; the magenta parts are not connected yet - more studs fix that). Artsy: the stem is a
+stack of round bricks on a Technic axle, the cap bricks and tiles, the umbo a printed piece (41 % off - accuracy is
+not what it optimises - and it holds). At 12 studs artsy mode builds the whole mushroom as one stack: round bricks,
+round plates 6x6 and 4x4 on an axle 12L, no brick at all.*
 
 ### The building manual
 
@@ -67,23 +101,117 @@ along.
 
 ## Install
 
+Legolize it needs **Python 3.10 or newer** with numpy, scipy, trimesh, libigl and manifold3d, and PyQt5, vtk and
+Pillow for the window (`requirements.txt`, `requirements-gui.txt`). Optional: **FreeCAD 1.0** (`freecadcmd`) for STEP
+input and the FreeCAD export, and **pdflatex** for the PDFs of the manual and the order lists (without it they stay
+LaTeX). Tested on Debian 13; macOS and Windows without WSL are not tested yet - the steps below follow what the program
+needs, please report what fails.
+
+### Debian
+
 ```bash
-./install.sh            # environment ~/.local/share/legolize-it/venv (with the system's packages), the command
-                        # legolize-it, the desktop entry "Legolize it" and its icon
-legolize-it check       # packages, FreeCAD, one part into bricks with both exports
-./install.sh --uninstall
+sudo apt install git python3 python3-venv python3-numpy python3-scipy python3-pyqt5 python3-pil \
+                 freecad texlive-latex-base texlive-latex-recommended texlive-pictures lmodern
+git clone https://github.com/CalzitPLA/Legolize-it.git
+cd Legolize-it
+./install.sh            # environment ~/.local/share/legolize-it/venv (with the system's packages; pip adds trimesh,
+                        # libigl, manifold3d, vtk), the command legolize-it, the desktop entry "Legolize it" and its
+                        # icon; run it again to update (after a git pull: the command runs this folder's code)
+legolize-it check       # packages, FreeCAD, the desktop entry, one part into bricks with both exports and the same
+                        # part in artsy mode
 ```
 
-Needs Python >= 3.10 with numpy, scipy, trimesh, libigl, manifold3d (and PyQt5, vtk for the window) -
-`requirements*.txt`. FreeCAD's `freecadcmd` is used for STEP input and the FreeCAD export
-(`$LEGOLIZE_FREECADCMD`, else `freecadcmd` on the PATH, else `/usr/bin/freecadcmd`).
+The desktop entry opens the window in the mode *Detailed*; right-click it in the applications menu or the dock for
+*Legolize it - artsy mode* and *Legolize it - bricky mode* (the same as `legolize-it --artsy` and
+`legolize-it --bricks-only`). It opens STL, STEP, PLY, OBJ, 3MF, glTF and OFF files. Other Linux systems: the same
+with their own packages (`./install.sh --no-system` takes every Python package from PyPI instead).
+
+### macOS (not tested)
+
+```bash
+xcode-select --install                     # git and the compilers
+brew install python@3.12                   # Homebrew (https://brew.sh), or Python from python.org
+git clone https://github.com/CalzitPLA/Legolize-it.git
+cd Legolize-it
+PYTHON="$(brew --prefix python@3.12)/bin/python3.12" ./install.sh --no-system
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc       # the command legolize-it, in new terminals
+legolize-it check
+```
+
+FreeCAD: put FreeCAD 1.0 from [freecad.org](https://www.freecad.org) into *Applications* and tell Legolize it where
+its programs are (the names inside the app can differ between FreeCAD versions - look with `ls`):
+
+```bash
+echo 'export LEGOLIZE_FREECADCMD=/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd' >> ~/.zshrc
+echo 'export LEGOLIZE_FREECAD=/Applications/FreeCAD.app/Contents/MacOS/FreeCAD' >> ~/.zshrc   # "Open in FreeCAD"
+```
+
+PDFs: `brew install --cask mactex-no-gui`. There is no desktop entry on macOS: start the window with `legolize-it`.
+If pip finds no PyQt5 for your Mac, install it with Homebrew (`brew install pyqt@5`) and run `./install.sh` with the
+Python that pyqt@5 belongs to, without `--no-system`.
+
+### Windows
+
+The tested way is **WSL** (Windows Subsystem for Linux) with Debian - Windows 11 shows the Linux window on the desktop.
+In PowerShell as administrator:
+
+```powershell
+wsl --install -d Debian          # then restart, open "Debian" from the start menu and follow the Debian steps above
+```
+
+Without WSL (not tested): install [Python 3.12](https://www.python.org) (tick *Add python.exe to PATH*),
+[Git](https://git-scm.com), and optionally FreeCAD 1.0 and [MiKTeX](https://miktex.org) for the PDFs. Then in
+PowerShell:
+
+```powershell
+git clone https://github.com/CalzitPLA/Legolize-it.git
+cd Legolize-it
+py -3.12 -m venv "$env:LOCALAPPDATA\legolize-it\venv"
+$py = "$env:LOCALAPPDATA\legolize-it\venv\Scripts\python.exe"
+& $py -m pip install -r requirements.txt -r requirements-gui.txt
+& $py -m lego_gui                                    # the window - run it from the Legolize-it folder
+& $py -m lego_engine part.stl --studs 24 --manual    # the command line
+setx LEGOLIZE_FREECADCMD "C:\Program Files\FreeCAD 1.0\bin\freecadcmd.exe"   # FreeCAD, for new terminals
+setx LEGOLIZE_FREECAD "C:\Program Files\FreeCAD 1.0\bin\freecad.exe"         # "Open in FreeCAD"
+```
+
+Windows gets no `legolize-it` command and no start-menu entry this way.
+
+### Uninstall
+
+On Debian, other Linux, macOS and in WSL - wherever `./install.sh` installed it:
+
+```bash
+legolize-it uninstall            # the same as ./install.sh --uninstall
+legolize-it uninstall --purge    # also the caches and the list of servers
+cd .. && rm -rf Legolize-it      # the program's folder too, if you want it gone completely
+```
+
+- **Removed:** the command `~/.local/bin/legolize-it`, the desktop entry, the icons and the Python environment
+  `~/.local/share/legolize-it/venv`. An environment you placed outside your home folder (`./install.sh --venv DIR`)
+  is left alone - delete it yourself.
+- **Kept:** your models and exports in `~/legolize_results`, always. Without `--purge` also the caches in
+  `~/.cache/legolize` (tessellated STEP files, a BlueBrixx catalogue you crawled) and the server list
+  `~/.config/legolize-it`. The program's folder stays as well: `./install.sh` installs it again.
+- **WSL:** `wsl --unregister Debian` in PowerShell removes the whole Debian, with everything else in it.
+
+Windows without WSL: delete the folders `%LOCALAPPDATA%\legolize-it` (the environment) and `Legolize-it` (the
+program), and if you want, `%USERPROFILE%\.cache\legolize`, `%USERPROFILE%\.config\legolize-it` and your results
+in `%USERPROFILE%\legolize_results`; remove the two variables with
+`reg delete HKCU\Environment /v LEGOLIZE_FREECADCMD /f` (and the same for `LEGOLIZE_FREECAD`).
 
 ## Use
 
-**The window:** `legolize-it [part.stl|part.step]` (or `python3 -m lego_gui`). Open a part (or drop it on the window),
-press *Legolize it* (F5).
+**The window:** `legolize-it [part.stl|part.step]` (or `python3 -m lego_gui`; `--artsy` or `--bricks-only` start in
+that mode). Open a part (or drop it on the window), press *Legolize it* (F5).
 
-- left: the settings - size (studs along the longest side, or a scale factor), layer height (brick 9.6 / plate 3.2 mm),
+- left: the settings - the *Catalogue* (*Standard*, *LEGO* or *BlueBrixx*, with a link to the maker's website; *Parts
+  ...* lists every part with a checkbox, greys out what is not in the range, and switches single parts off - the mode
+  stays); the *Mode* on top sets the switches that make the look at once: *Bricky* (plain bricks of the
+  common sizes), *Detailed* (shaped and printed pieces, tiles, rods, bars - the window's start) or *Artsy* (artsy
+  mode, see below: axle stacks, printed details, symmetry, the larger sizes up to 12 long); a switch changed by hand
+  shows *Custom*; the command line's `--bricks-only` and `--artsy` start in Bricky and Artsy; then size (studs along
+  the longest side, or a scale factor), layer height (brick 9.6 / plate 3.2 mm),
   up axis, fill threshold, shell, thin walls (auto / all / off), the brick catalogue, *Pieces* (the shaped families and
   special pieces with their tolerance - on in the window, off on the command line unless asked), the brick system's
   dimensions with the *stud play*, export options and *Run exports on* (this computer or a server); after the first
@@ -112,7 +240,10 @@ legolize-it cli part.step --studs 24 --unit plate --shapes all --special --stl l
 python3 -m lego_engine --help        # the same without the installed command
 ```
 
-`--shapes` takes `slope, curve, round, dome, inverted`, `all` or `none` (the default); `--special [TOL]` adds special
+`--range standard|lego|bluebrixx` limits the sizes and parts to a maker's range, `--parts-off gear_24,tile_6x2,4x8`
+switches single parts off, `--list-parts` lists every part's id and which ranges have it.
+`--shapes` takes `slope, curve, round, dome, inverted`, `all` or `none` (the default); `--details` takes `tiles, rods,
+bars`, `all` or `none` (the default) - parts for a set-like look, below; `--special [TOL]` adds special
 pieces where the best brick or piece leaves more than TOL of a cell wrong (0.3); `--colours` auto (default), source,
 size, layer, mixed, random, rainbow, fade (`--fade ocean`), single (`--single blue`); `--stud-play` the fit.
 
@@ -193,6 +324,28 @@ special pieces are listed apart (no standard pack). Shipping to Germany 5.95 EUR
    the best brick or piece leaves more than the tolerance wrong get the input cut to the cell (manifold3d for a closed
    mesh; exact B-rep in FreeCAD for a STEP), joined into rectangles per layer. Measured 2026-11-12, deviation from the
    part: sphere 12 studs 12.9 % (bricks) -> 8.8 % (shaped), 24 studs 6.3 -> 4.4 %; the logo's mushroom (24) 26 -> 19 %.
+   **Details** (`details.py`, optional, `--details`; in the window: *Pieces > Details*): parts laid by rule, not
+   fitted to the surface, so a model looks like a set rather than a stack of bricks. *Tiles*: plates with nothing on
+   top become tiles of their size (1x1 ... 1x8, 2x2 ... 2x6; plate layers only - larger plates stay studded).
+   *Rods*: free-standing 1x1 columns, three layers or more, become round 1x1 plates or bricks (posts, supports).
+   *Bars*: a straight run of 4, 5 or 7 cells standing free in its layer (nothing beside, above or below its middle)
+   whose ends hold becomes a bar 3L, 4L or 6L on two clip plates - one piece with a stud and a seat at each end only,
+   laid before the bricks. Tiles and rods keep every brick's place, so the cover, the colours and how the model holds
+   do not change (nothing sits on a tile). The manual draws tiles with an inner edge and no studs, a bar as a line
+   between its two clips.
+   **Artsy mode** (`artsy.py`, `--style artsy`; in the window: *Pieces > Style*): built with craft, not to the last
+   cell. Round bodies (a colour, a separate part, or the whole, whose outline stays the same all round one of the grid
+   axes) become parts threaded on a Technic axle (`technic.py`: round plates and bricks with axle hole, gears, discs,
+   rims; `assembly.py`): bodies on one axle make one stack, its profile cut into runs filled with as few and as thick
+   parts as fit, each part in the input's colour around it; a lying axle is held by a brick with an axle hole at each
+   end (on posts if need be), an upright stack (round 2x2 / 4x4 / 6x6) sits on studs. Only where the body shows - a
+   stem that runs on inside a cap stays bricks there. Small detailed parts (about a brick) become printed pieces;
+   mirror planes are enforced where the part nearly has them (`--artsy-symmetry off`); stray cells, pinholes and
+   one-cell colour specks go; one-cell staircases get corner cells so they hold; a display base goes under parts that
+   stand apart (`artsy_base`); a repair loop adds posts until nothing floats. `technic_colours` limits the Technic
+   parts to the colours a shop sells. The manual builds each stack as a sub-assembly first; STL and FreeCAD exports
+   leave the bought Technic parts out (`stl/bought.csv`). The report (`stats["craft"]`) counts techniques, parts,
+   part types, colour regions and visible studs; the deviation is shown, not optimised.
 4. **Layout** (`layout.py`): per layer, the first free cell in scan order anchors the brick with the best score: area,
    + bridging two or three bricks below, + the layer's direction (layers cross), - ending on a joint of the layer below
    (running bond). Repair passes (`layout_connected`): where two groups touch side by side without holding together
@@ -248,6 +401,22 @@ as one piece, the others are assemblies, single-layer flat parts or have detache
 - `examples/capsule.step` - a cylinder with a torus ring, a dome and a cone (made in FreeCAD): shaped pieces and
   exact special pieces;
 - `examples/manuals/` - the building manuals of the mushroom and the capsule (PDF).
+
+## The makers' ranges, trademarks
+
+The LEGO and BlueBrixx ranges in `lego_engine/catalogues.py` are kept to the facts this program needs - which brick
+sizes and part types exist, and part numbers to identify them - with none of the makers' names, pictures, prices or
+descriptions. For parts, colours, prices and stock see their websites:
+[LEGO Pick a Brick](https://www.lego.com/pick-and-build/pick-a-brick) and [BlueBrixx](https://www.bluebrixx.com).
+The LEGO range is the one read at Pick a Brick on 2026-11-24; BlueBrixx's comes from the part-pack catalogue (bricks
+and plates only - its other parts are not in the data). Shaped pieces are this program's own shapes, to print.
+
+LEGO® and Technic™ are trademarks of the LEGO Group, which does not sponsor, authorise or endorse this software.
+BlueBrixx™ is a trademark of its owner, who is not affiliated with this software either (more in
+[TRADEMARKS.md](TRADEMARKS.md)). The program carries this
+notice (`catalogues.NOTICE`) wherever it shows or writes the names: the window's *About* (F1) and *Parts* dialog,
+`legolize-it --help` and the command lines' help, the installer, the building manual's title page, the order lists,
+the STL stack's README.txt and the FreeCAD document's comment.
 
 ## Limits
 

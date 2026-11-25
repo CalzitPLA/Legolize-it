@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Legolize it - installer (Linux): a Python environment with the packages, the command `legolize-it`, a desktop entry
-# and the mushroom icon.
+# (with the actions "artsy mode" and "bricky mode") and the mushroom icon.
 #   ./install.sh                 install (environment: ~/.local/share/legolize-it/venv, using the system's packages)
-#   ./install.sh --check         check the installation: packages, FreeCAD, one part into bricks with both exports
-#   ./install.sh --uninstall     remove the command, the desktop entry, the icons and the environment
+#   ./install.sh --check         check the installation: packages, FreeCAD, desktop entry, one part into bricks with
+#                                both exports, the same part in artsy mode
+#   ./install.sh --uninstall     remove the command, the desktop entry, the icons and the environment (also:
+#                                legolize-it uninstall); your results in ~/legolize_results stay
+#   ./install.sh --uninstall --purge   also the caches (~/.cache/legolize) and the server list (~/.config/legolize-it)
 #   ./install.sh --venv DIR      the environment somewhere else
 #   ./install.sh --no-system     an environment without the system's site packages (everything from PyPI)
 #   PYTHON=/path/to/python3 ./install.sh    another Python (3.10 or newer)
@@ -16,6 +19,7 @@ APPS="$HOME/.local/share/applications"
 ICONS="$HOME/.local/share/icons/hicolor"
 PY=${PYTHON:-python3}
 SYSTEM=1
+PURGE=0
 MODE=install
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -23,7 +27,8 @@ while [ $# -gt 0 ]; do
     --uninstall) MODE=uninstall ;;
     --venv) VENV=$2; shift ;;
     --no-system) SYSTEM=0 ;;
-    -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --purge) PURGE=1 ;;
+    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option $1 (see --help)" >&2; exit 2 ;;
   esac
   shift
@@ -78,15 +83,55 @@ PYEOF
   else
     warn "the run failed - the log: $tmp/log.txt"; ok=0
   fi
+  say "artsy mode: the same part with parts on axles, printed details, symmetry"
+  if PYTHONPATH="$ROOT" "$py" -m lego_engine "$ROOT/examples/golden_teacher.ply" --studs 12 --unit plate --style artsy \
+       --colours source --out "$tmp/artsy" --stl none --quiet > "$tmp/artsy.json" 2>> "$tmp/log.txt"; then
+    "$py" - "$tmp/artsy.json" <<'PYEOF' || ok=0
+import json, sys
+s = json.load(open(sys.argv[1]))
+t = sum((s.get("technic") or {}).values())            # a round part can become one stack of round parts, no bricks
+print(f"  {s['bricks']} bricks, {t} Technic parts ({', '.join(s['craft']['techniques'])}), holds together: {s['stable']}")
+sys.exit(0 if s["bricks"] + t > 0 and s["stable"] else 1)
+PYEOF
+  else
+    warn "the artsy run failed - the log: $tmp/log.txt"; ok=0
+  fi
+  local desk="$APPS/legolize-it.desktop"
+  say "the desktop entry"
+  if [ -f "$desk" ]; then
+    if command -v desktop-file-validate >/dev/null; then
+      desktop-file-validate "$desk" && echo "  $desk: valid, actions: $(sed -n 's/^Actions=//p' "$desk")" || ok=0
+    else
+      echo "  $desk (desktop-file-validate not installed: not checked)"
+    fi
+  else
+    warn "no desktop entry at $desk - run ./install.sh"; ok=0
+  fi
   [ $ok = 1 ] && say "the installation works (output in $tmp)" || { warn "the installation is incomplete (see above)"; exit 1; }
 }
 
 if [ $MODE = uninstall ]; then
-  say "removing the command, the desktop entry, the icons and $VENV"
+  say "removing the command, the desktop entry and the icons"
   rm -f "$BIN/legolize-it" "$APPS/legolize-it.desktop"
   for px in 32 64 128 256 512; do rm -f "$ICONS/${px}x${px}/apps/legolize-it.png"; done
-  case "$VENV" in "$HOME"/*) rm -rf "$VENV"; rmdir "$(dirname "$VENV")" 2>/dev/null || true ;; esac
+  case "$VENV" in
+    "$HOME"/?*) say "removing the environment $VENV"; rm -rf "$VENV"; rmdir "$(dirname "$VENV")" 2>/dev/null || true ;;
+    *) warn "the environment $VENV is outside your home: left as it is" ;;
+  esac
+  CONF="${XDG_CONFIG_HOME:-$HOME/.config}/legolize-it"
+  CACHE="${LEGOLIZE_CACHE:-$HOME/.cache/legolize}"
+  for d in "$CACHE" "$CONF"; do
+    [ -e "$d" ] || continue
+    if [ $PURGE = 1 ]; then
+      case "$d" in "$HOME"/?*) say "removing $d"; rm -rf "$d" ;; *) warn "$d is outside your home: left as it is" ;; esac
+    else
+      echo "  kept $d (./install.sh --uninstall --purge removes it)"
+    fi
+  done
+  [ -d "$HOME/legolize_results" ] && echo "  kept your results in $HOME/legolize_results"
   command -v update-desktop-database >/dev/null && update-desktop-database "$APPS" 2>/dev/null || true
+  command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$ICONS" 2>/dev/null || true
+  say "Legolize it is uninstalled (this folder, $ROOT, stays: ./install.sh installs it again)"
   exit 0
 fi
 if [ $MODE = check ]; then check; exit 0; fi
@@ -115,8 +160,10 @@ cat > "$BIN/legolize-it" <<LAUNCHER
 #!/usr/bin/env bash
 # Legolize it, installed by $ROOT/install.sh
 #   legolize-it [part.stl|part.step] [--studs N] [--unit plate] [--run]   the window (legolize-it --help-window)
+#   legolize-it --artsy part.stl | --bricks-only part.stl                 the window in the mode artsy / bricky
 #   legolize-it cli part.step --studs 24 --stl layers --fcstd --out DIR   the command line (legolize-it cli --help)
 #   legolize-it check                                                     check this installation
+#   legolize-it uninstall [--purge]                                       remove it (--purge: caches, server list)
 #   legolize-it server list|add HOST PATH|check HOST|sync HOST            runs on servers over ssh
 #   legolize-it shop crawl | order NAME=result.json ... --lang de          BlueBrixx part packs: catalogue, order list
 ROOT="$ROOT"
@@ -126,10 +173,12 @@ export RESOURCE_NAME=legolize-it      # the window's WM_CLASS instance = the des
 case "\${1:-}" in
   cli) shift; exec "\$PY" -m lego_engine "\$@" ;;
   check) exec "\$ROOT/install.sh" --check --venv "$VENV" ;;
+  uninstall) shift; exec "\$ROOT/install.sh" --uninstall --venv "$VENV" "\$@" ;;
   server) shift; exec "\$PY" -m lego_engine.remote "\$@" ;;
   shop) shift; exec "\$PY" -m lego_engine.shop "\$@" ;;
   --help-window) exec "\$PY" -m lego_gui --help ;;
-  -h|--help) sed -n '3,7p' "\$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '3,9p' "\$0" | sed 's/^# \{0,1\}//'
+             "\$PY" -c 'from lego_engine.catalogues import NOTICE; print(); print(NOTICE)'; exit 0 ;;
 esac
 exec "\$PY" -m lego_gui "\$@"
 LAUNCHER
@@ -141,22 +190,10 @@ for px in 32 64 128 256 512; do
   mkdir -p "$ICONS/${px}x${px}/apps"
   cp "$ROOT/packaging/icons/legolize-it_${px}.png" "$ICONS/${px}x${px}/apps/legolize-it.png"
 done
-cat > "$APPS/legolize-it.desktop" <<DESKTOP
-[Desktop Entry]
-Type=Application
-Name=Legolize it
-GenericName=Parts into bricks
-Comment=Voxelize an STL/STEP part into stud-and-tube bricks; export to FreeCAD and as an STL stack for 3D printing
-Exec=$BIN/legolize-it %f
-Icon=legolize-it
-Terminal=false
-Categories=Graphics;3DGraphics;Engineering;
-MimeType=model/stl;model/step;application/sla;
-Keywords=brick;voxel;STL;STEP;FreeCAD;3D printing;
-StartupNotify=true
-StartupWMClass=Legolize it
-DESKTOP
+sed "s|^Exec=legolize-it|Exec=$BIN/legolize-it|" "$ROOT/packaging/legolize-it.desktop" > "$APPS/legolize-it.desktop"
 command -v update-desktop-database >/dev/null && update-desktop-database "$APPS" 2>/dev/null || true
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$ICONS" 2>/dev/null || true
 case ":$PATH:" in *":$BIN:"*) ;; *) warn "$BIN is not on your PATH: add it, or start $BIN/legolize-it" ;; esac
-say "done: legolize-it (or 'Legolize it' in the applications menu); legolize-it check tests the installation"
+say "done: legolize-it (or 'Legolize it' in the applications menu, right-click: artsy / bricky mode);"
+echo "  legolize-it check tests the installation, legolize-it uninstall removes it"
+PYTHONPATH="$ROOT" "$VENV/bin/python" -c 'from lego_engine.catalogues import NOTICE; print(); print(NOTICE)' || true

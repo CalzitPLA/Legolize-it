@@ -24,13 +24,17 @@ from .export_stl import MODES as STL_MODES
 from .mesh_io import UP_AXES
 from .palette import FADES, MODES as COLOUR_MODES, NAMES as COLOUR_NAMES
 from .pipeline import LegoSettings, Legolizer, default_out_dir
+from .details import parse_details
 from .shapes import FAMILIES, parse_families
 from .system import DEFAULT_SIZES, UNITS, BrickSystem, parse_sizes
 from .voxelize import THIN_MODES
 
 
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="legolize-it", description=__doc__.split("\n\n")[0])
+    from .catalogues import CATALOGUES, NOTICE
+    links = "; ".join(f"{c.label}: {c.url}" for c in CATALOGUES.values() if c.url)
+    ap = argparse.ArgumentParser(prog="legolize-it", description=__doc__.split("\n\n")[0],
+                                 epilog=f"{NOTICE} ({links})")
     ap.add_argument("input", help="the part: .stl or .step/.stp (also .obj/.ply/.off/.3mf/.glb)")
     size = ap.add_mutually_exclusive_group()
     size.add_argument("--studs", type=float, default=None, help="studs along the longest side (default 16)")
@@ -43,7 +47,16 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--thin-walls", nargs="?", choices=THIN_MODES, default="auto", const="all",
                     help="auto (default): surface cells where the material is too thin to fill any cell (sheet metal, "
                          "profiles); all (or the bare flag): every cell the surface passes; off")
-    ap.add_argument("--sizes", default=",".join(f"{a}x{b}" for a, b in DEFAULT_SIZES), help="brick catalogue")
+    ap.add_argument("--sizes", default=None, help="brick sizes, e.g. 1x2,2x4 (default: "
+                    + ",".join(f"{a}x{b}" for a, b in DEFAULT_SIZES) + ", or the range's)")
+    ap.add_argument("--range", choices=("standard", "lego", "bluebrixx"), default=None, dest="parts_range",
+                    help="the parts' range: standard (every part, to print), lego (what LEGO sells single), "
+                         "bluebrixx (the brick and plate sizes of its part packs) - sizes and parts outside it are "
+                         "left out (lego_engine.catalogues)")
+    ap.add_argument("--parts-off", default="none", help="single parts to leave out, e.g. gear_24,tile_2x6,bar_7,2x3 "
+                    "(--list-parts)")
+    ap.add_argument("--list-parts", action="store_true", help="list every part's id (and which ranges have it), "
+                    "then quit")
     ap.add_argument("--max-length", type=int, default=8, help="longest brick in studs (0 = no limit)")
     ap.add_argument("--interlock", type=float, default=1.5, help="layout: reward for bricks spanning bricks below")
     ap.add_argument("--deflection", type=float, default=0.05, help="STEP tessellation, mm")
@@ -52,6 +65,17 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--shapes", default="none",
                     help=f"shaped pieces where they fit better than bricks: a list of {', '.join(FAMILIES)}, or all, "
                          "or none (default)")
+    ap.add_argument("--style", choices=("exact", "artsy"), default="exact",
+                    help="exact (default): as close to the part as the cells allow; artsy: built with craft - round "
+                         "bodies as parts on an axle, small details printed, mirror symmetry, round and curved pieces "
+                         "and the details (lego_engine.artsy)")
+    ap.add_argument("--artsy-symmetry", choices=("auto", "off"), default="auto",
+                    help="--style artsy: mirror planes where the part nearly has them (auto) or none")
+    ap.add_argument("--no-artsy-axles", action="store_true", help="--style artsy: no axle stacks")
+    ap.add_argument("--no-artsy-printed", action="store_true", help="--style artsy: no printed detail pieces")
+    ap.add_argument("--details", default="none",
+                    help="parts for a set-like look (lego_engine.details): a list of tiles (smooth tops, plate layers), "
+                         "rods (round 1x1 columns), bars (on clips, for free-standing runs), or all, or none (default)")
     ap.add_argument("--special", nargs="?", type=float, const=0.3, default=None, metavar="TOL",
                     help="special pieces (the input's exact shape) where the best brick or piece leaves more than TOL "
                          "of a cell wrong (the bare flag: 0.3)")
@@ -96,10 +120,22 @@ def settings_from_args(args) -> LegoSettings:
     if args.socket_clearance is not None:
         system = replace(system, socket_clearance=args.socket_clearance)
     mode, size = ("scale", args.scale) if args.scale is not None else ("studs", args.studs or 16.0)
+    from .catalogues import parse_parts, restrict
+    off = parse_parts(args.parts_off)
+    sizes = None if args.sizes is None else tuple(tuple(sorted(s)) for s in parse_sizes(args.sizes))
+    if args.parts_range:
+        in_range, parts_off = restrict(args.parts_range, args.unit, off)
+        sizes = in_range if sizes is None else tuple(s for s in sizes if s in in_range) or ((1, 1),)
+    else:
+        sizes, parts_off = sizes or DEFAULT_SIZES, off
     return LegoSettings(input=str(Path(args.input).resolve()), up=args.up, size_mode=mode, size=size, unit=args.unit,
                         threshold=args.threshold, samples=args.samples, shell=args.shell, thin_walls=args.thin_walls,
-                        sizes=parse_sizes(args.sizes), max_length=args.max_length, colour_mode=args.colours,
+                        sizes=sizes, max_length=args.max_length, colour_mode=args.colours,
+                        parts_range=args.parts_range or "standard", parts_off=parts_off,
                         fade=args.fade, single_colour=args.single, shapes=parse_families(args.shapes),
+                        details=parse_details(args.details), style=args.style,
+                        artsy_symmetry=args.artsy_symmetry, artsy_axles=not args.no_artsy_axles,
+                        artsy_printed=not args.no_artsy_printed,
                         special=args.special is not None,
                         special_tolerance=0.3 if args.special is None else args.special,
                         bridge_weight=args.interlock, deflection=args.deflection, snap_colours=not args.no_snap,
@@ -142,9 +178,16 @@ def settings_args(s: LegoSettings) -> List[str]:
            "--max-length", str(s.max_length), "--interlock", repr(float(s.bridge_weight)),
            "--deflection", repr(float(s.deflection)), "--colours", s.colour_mode, "--fade", s.fade,
            "--single", s.single_colour, "--shapes", ",".join(s.shapes) or "none",
+           "--details", ",".join(s.details) or "none", "--style", s.style,
+           "--artsy-symmetry", s.artsy_symmetry, "--range", s.parts_range,
+           "--parts-off", ",".join(s.parts_off) or "none",
            "--system-json", json.dumps(s.system.to_dict(), separators=(",", ":"))]
     if s.special:
         out += ["--special", repr(float(s.special_tolerance))]
+    if not s.artsy_axles:
+        out.append("--no-artsy-axles")
+    if not s.artsy_printed:
+        out.append("--no-artsy-printed")
     if not s.snap_colours:
         out.append("--no-snap")
     if s.colour_sizes:
@@ -185,6 +228,22 @@ def main_remote(args, argv: List[str], say) -> int:
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    raw = sys.argv[1:] if argv is None else list(argv)
+    if "--list-parts" in raw:                                  # no part needed
+        from .catalogues import CATALOGUES, GROUPS, NOTICE, available
+        unit = raw[raw.index("--unit") + 1] if "--unit" in raw else "brick"
+        have = {n: available(n, unit) for n in CATALOGUES if n != "standard"}
+        print(f"every part ({unit}s); the columns: in the range of " + ", ".join(CATALOGUES[n].label for n in have))
+        for group, items in GROUPS(unit):
+            print(f"\n{group}")
+            for pid, label in items:
+                marks = "  ".join(("x" if pid in have[n] else "-").center(len(CATALOGUES[n].label)) for n in have)
+                print(f"  {pid:24s} {label:44s} {marks}")
+        print("\n" + NOTICE)
+        for c in CATALOGUES.values():
+            if c.url:
+                print(f"  {c.label}: {c.url}")
+        return 0
     args = build_parser().parse_args(argv)
     say = (lambda _t: None) if args.quiet else (lambda t: print(t, file=sys.stderr))
     if args.server:
@@ -213,7 +272,10 @@ def main(argv=None) -> int:
     summary = {"result": str(out / "result.json"), **{k: result.stats[k] for k in
                ("bricks", "shaped", "special", "layers", "grid", "size_mm", "counts", "groups", "floating", "stable")},
                "timings": result.timings}
-    if not result.model.bricks:
+    for key in ("details", "craft", "technic"):
+        if key in result.stats:
+            summary[key] = result.stats[key]
+    if result.model.empty:
         summary["error"] = "no bricks - nothing exported (see the message above)"
         print(json.dumps(summary, indent=1))
         return 2

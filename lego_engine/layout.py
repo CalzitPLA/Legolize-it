@@ -84,6 +84,12 @@ class BrickModel:
     stud_cells: Optional[np.ndarray] = None     # (nx, ny, nz) bool: a stud on top (None: every occupied cell)
     seat_cells: Optional[np.ndarray] = None     # (nx, ny, nz) bool: sits on a stud below (None: every occupied cell)
     special_meshes: Dict[int, Tuple[np.ndarray, np.ndarray]] = field(default_factory=dict)   # brick -> (v, f), mm
+    assemblies: list = field(default_factory=list)   # lego_engine.assembly.Assembly: axle sub-assemblies (artsy)
+
+    @property
+    def empty(self) -> bool:
+        """No parts at all - artsy mode can build a round part as one axle stack without a single brick."""
+        return not self.bricks and not self.assemblies
 
     @property
     def shape(self) -> Tuple[int, int, int]:

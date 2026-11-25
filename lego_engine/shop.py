@@ -241,6 +241,9 @@ def needs(result) -> Needs:
     for b, k in zip(result.model.bricks, idx):
         if not b.is_special:
             out[(result.settings.unit, b.name, NAMES[k])] += 1
+    for a in getattr(result.model, "assemblies", None) or ():   # artsy: axle sub-assemblies (unit "technic")
+        for (key, colour), n in a.part_counts().items():
+            out[("technic", key, colour)] += n
     return dict(out)
 
 
@@ -252,9 +255,16 @@ def needs_from_json(path) -> Needs:
     d = json.loads(Path(path).read_text())
     unit = d["settings"]["unit"]
     out: Needs = defaultdict(int)
-    for (_L, _i, _j, w, dd), kind, k in zip(d["bricks"], d["kinds"], snap_index(np.asarray(d["colours"], float))):
+    cols = np.asarray(d["colours"], float).reshape(-1, 3)
+    idx = snap_index(cols) if len(cols) else []           # artsy: a model can be one axle stack, no brick at all
+    for (_L, _i, _j, w, dd), kind, k in zip(d["bricks"], d["kinds"], idx):
         if kind != "special":
             out[(unit, label(kind, w, dd) if kind else size_name(w, dd), NAMES[k])] += 1
+    if d.get("assemblies"):
+        from .assembly import Assembly
+        for ad in d["assemblies"]:
+            for (key, colour), n in Assembly.from_dict(ad).part_counts().items():
+                out[("technic", key, colour)] += n
     return dict(out)
 
 
@@ -321,7 +331,7 @@ class Missing:
     part: str
     colour: str
     need: int
-    why: str                  # "shaped" (no standard pack), "unsold" (no pack of this size and colour in stock)
+    why: str                  # "shaped" (no standard pack), "technic" (a part on an axle), "unsold" (no pack of this size and colour in stock)
     per_model: Dict[str, int] = field(default_factory=dict)
 
 
@@ -383,7 +393,7 @@ def price(models: Dict[str, Needs], catalogue: Catalogue) -> Order:
     for (unit, part, colour), n in sorted(total.items()):
         per = {name: nd[(unit, part, colour)] for name, nd in models.items() if (unit, part, colour) in nd}
         if not re.fullmatch(r"\d+x\d+", part):
-            missing.append(Missing(unit, part, colour, n, "shaped", per))
+            missing.append(Missing(unit, part, colour, n, "technic" if unit == "technic" else "shaped", per))
             continue
         shop_colour, packs = catalogue.find(unit, part, colour)
         instead, buy, buy_unit, each = "", colour, unit, 1
@@ -562,7 +572,9 @@ def main(argv=None) -> int:
     """python3 -m lego_engine.shop crawl | order NAME=result.json|manual.tex ... [--lang de] [--out DIR]"""
     import argparse
     import sys
-    ap = argparse.ArgumentParser(prog="legolize-it shop", description="BlueBrixx part packs for Legolize-it builds")
+    from .catalogues import NOTICE
+    ap = argparse.ArgumentParser(prog="legolize-it shop", description="BlueBrixx part packs for Legolize-it builds",
+                                 epilog=NOTICE + " (BlueBrixx: https://www.bluebrixx.com)")
     sub = ap.add_subparsers(dest="what", required=True)
     c = sub.add_parser("crawl", help="read the shop's standard brick and plate packs (about 10-20 minutes)")
     c.add_argument("--catalogue", default=str(CACHE), help="where the crawl goes (default ~/.cache/legolize/bluebrixx/)")

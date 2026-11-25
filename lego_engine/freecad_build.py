@@ -103,6 +103,13 @@ def wire_of(points, curve):
 
 
 def outline_shape(o):
+    if o["op"] == "bar":                                    # end boxes and a bar along x between their centres
+        shape = None
+        for x0, y0, x1, y1 in o["ends"]:
+            box = Part.makeBox(x1 - x0, y1 - y0, o["height"], V(x0, y0, 0))
+            shape = box if shape is None else shape.fuse(box)
+        rod = Part.makeCylinder(o["radius"], o["x1"] - o["x0"], V(o["x0"], o["yc"], o["zc"]), V(1, 0, 0))
+        return shape.fuse(rod).removeSplitter()
     if o["op"] == "cylinder":
         x, y = o["centre"]
         return Part.makeCylinder(o["radius"], o["height"], V(x, y, 0))
@@ -144,6 +151,10 @@ def turned(kind, rot, w, d):
 # ---------------------------------------------------------------------------------------------- the input
 
 doc = App.newDocument(job["name"])
+try:
+    doc.Comment = "Made with Legolize it. " + job.get("notice", "")      # the trademark notice
+except Exception:
+    pass
 inp = job.get("input")
 moved = None
 m = None
@@ -237,6 +248,17 @@ for n, (k, i, j, w, d) in enumerate(bricks):
     shp = obj.Shape.copy()
     shp.Placement = obj.Placement
     placed[n] = (shp, cells)
+
+# ---------------------------------------------------------------------------------------------- Technic (artsy)
+if job.get("technic"):                    # the axle sub-assemblies' parts: bought, shown as meshes
+    import Mesh
+    tg = doc.addObject("App::DocumentObjectGroup", "Technic")
+    tg.Label = "Technic (bought)"
+    for t in job["technic"]:
+        obj = doc.addObject("Mesh::Feature", t["name"])
+        obj.Mesh = Mesh.Mesh(t["mesh"])
+        obj.Label = t["label"]
+        tg.addObject(obj)
 
 # ---------------------------------------------------------------------------------------------- the input object
 

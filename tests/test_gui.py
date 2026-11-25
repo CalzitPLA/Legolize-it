@@ -30,6 +30,53 @@ def test_settings_panel_round_trip(app):
     assert set(got.sizes) == set(s.sizes)
 
 
+def test_the_mode_sets_the_switches_at_once_and_a_hand_change_makes_it_custom(app):
+    from lego_gui.settings_panel import MODES, SettingsPanel
+    panel = SettingsPanel()
+    seen = []
+    panel.changed.connect(seen.append)
+    for key in ("bricky", "artsy", "detailed"):
+        seen.clear()
+        panel.mode.setCurrentIndex(panel.mode.findData(key))
+        s, m = panel.settings(), MODES[key]
+        assert seen == ["layout"]                           # one redo for the whole mode, not one per box
+        assert (s.style, set(s.shapes), s.special, set(s.details), s.max_length) == \
+            (m["style"], set(m["shapes"]), m["special"], set(m["details"]), m["max_length"])
+        assert panel.mode_of(s) == key
+    panel.family_checks["slope"].setChecked(False)          # by hand
+    assert panel.mode.currentData() == "custom"
+    panel.set_settings(LegoSettings(style="artsy", shapes=(), special=False, details=MODES["artsy"]["details"],
+                                    max_length=12))
+    assert panel.mode.currentData() == "artsy" and panel.artsy_axles.isEnabled()
+
+
+def test_the_catalogue_range_and_single_parts_off_keep_the_mode(app):
+    from lego_engine.catalogues import available
+    from lego_gui.parts_dialog import PartsDialog
+    from lego_gui.settings_panel import SettingsPanel
+    panel = SettingsPanel()
+    panel.unit.setCurrentIndex(panel.unit.findData("plate"))
+    panel.mode.setCurrentIndex(panel.mode.findData("artsy"))
+    seen = []
+    panel.changed.connect(seen.append)
+    panel.set_parts("lego", {"gear_24", "tile_2x6", "4x8"})  # as the dialog hands it over
+    s = panel.settings()
+    assert seen == ["layout"] and panel.mode.currentData() == "artsy"
+    assert s.parts_range == "lego" and {"gear_24", "tile_6x2"} - set(s.parts_off) == {"tile_6x2"}
+    assert "gear_24" in s.parts_off and "curve_2x1" in s.parts_off          # off by hand; outside LEGO's range
+    assert (4, 8) not in s.sizes and (8, 8) in s.sizes and (1, 1) in s.sizes
+    panel.set_settings(s)                                    # a saved result back in the window
+    assert panel.settings().parts_off == s.parts_off and panel.settings().sizes == s.sizes
+    dlg = PartsDialog(None, "bluebrixx", "plate", ())
+    assert dlg.items["gear_24"].isDisabled() and not dlg.items["2x4"].isDisabled()      # not in BlueBrixx's data
+    dlg.set_off("2x4")
+    assert dlg.off == {"2x4"}
+    dlg.range.setCurrentIndex(dlg.range.findData("lego"))
+    assert not dlg.items["gear_24"].isDisabled() and dlg.items["2x4"].checkState(0) == 0   # stays off
+    dlg._none()
+    assert dlg.off == available("lego", "plate") - {"1x1"}
+
+
 def test_the_resolution_slider_sets_the_size(app):
     from lego_gui.app import MainWindow
     win = MainWindow()

@@ -113,6 +113,9 @@ def bricks_display(model: BrickModel, grid: Grid, system: BrickSystem, indices: 
                 tv, tf = piece_template(b.kind, b.rot, float(p), float(h), float(system.clearance))
                 add(tv + grid.origin + np.array([b.i * p, b.j * p, b.layer * h]), tf, n)
     occ = model.occupancy
+    if getattr(model, "assemblies", None):                # an assembly's support bricks cover the studs under them
+        from .assembly import cells_mask
+        occ = occ | cells_mask(model.assemblies, occ.shape)
     has_stud = model.studs
     nz = occ.shape[2]
     centres, z0, stud_owner = [], [], []
@@ -247,6 +250,11 @@ def _outline_solid(o: Dict):
     if o["op"] == "cylinder":
         cx, cy = o["centre"]
         return mf.Manifold.cylinder(o["height"], o["radius"], circular_segments=48).translate((cx, cy, 0))
+    if o["op"] == "bar":                                    # end boxes and a bar along x between their centres
+        parts = [mf.Manifold.cube((x1 - x0, y1 - y0, o["height"])).translate((x0, y0, 0)) for x0, y0, x1, y1 in o["ends"]]
+        rod = mf.Manifold.cylinder(o["x1"] - o["x0"], o["radius"], circular_segments=24)
+        parts.append(rod.rotate((0.0, 90.0, 0.0)).translate((o["x0"], o["yc"], o["zc"])))
+        return _union(parts)
     cs = mf.CrossSection([[tuple(map(float, q)) for q in o["poly"]]])
     if o["op"] == "extrude_z":
         return mf.Manifold.extrude(cs, o["height"])

@@ -21,13 +21,15 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
+from .catalogues import NOTICE
 from .palette import NAMES, PALETTE, snap_index
 from .system import name_sort_key
 
 
 def tex_escape(text: str) -> str:
     rep = {"\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#", "_": r"\_", "{": r"\{",
-           "}": r"\}", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}"}
+           "}": r"\}", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}",
+           "\u00ae": r"\textregistered{}", "\u2122": r"\texttrademark{}"}
     return "".join(rep.get(ch, ch) for ch in str(text))
 
 
@@ -61,7 +63,7 @@ def _fall_arrow(b) -> Optional[tuple]:
     return cx - dx * half, cy - dy * half, cx + dx * half, cy + dy * half
 
 
-def _plan(model, k: int, colours: np.ndarray, unit_cm: float, special_no: Dict[int, int]) -> str:
+def _plan(model, k: int, colours: np.ndarray, unit_cm: float, special_no: Dict[int, int], mounted=()) -> str:
     """The TikZ plan of layer k: the layer below grey, this layer's parts in their colours."""
     from .geometry import _rectangles
     from .shapes import TYPES
@@ -89,12 +91,22 @@ def _plan(model, k: int, colours: np.ndarray, unit_cm: float, special_no: Dict[i
         elif t is not None and t.form == "round":
             lines.append(rf"\filldraw[fill={col}, draw=black, line width=0.5pt] ({b.i + b.w / 2:.2f},"
                          rf"{b.j + b.d / 2:.2f}) circle ({b.w / 2 - 0.06:.2f});")
+        elif t is not None and t.form == "bar":                       # two clip plates, the bar between them
+            (ax, ay), (ex, ey) = (b.i, b.j), (b.i + b.w - 1, b.j + b.d - 1)
+            lines.append(rf"\draw[black, line width=3.2pt] ({ax + 0.5},{ay + 0.5}) -- ({ex + 0.5},{ey + 0.5});")
+            lines.append(rf"\draw[{col}, line width=2.2pt] ({ax + 0.5},{ay + 0.5}) -- ({ex + 0.5},{ey + 0.5});")
+            for cx, cy in ((ax, ay), (ex, ey)):
+                lines.append(rf"\filldraw[fill={col}, draw=black, line width=0.5pt] ({cx + 0.06:.2f},{cy + 0.06:.2f})"
+                             rf" rectangle ({cx + 0.94:.2f},{cy + 0.94:.2f});")
         else:
             style = "pattern=north east lines, pattern color=black!45, " if b.is_special else ""
             lines.append(rf"\filldraw[fill={col}, draw=black, line width=0.5pt] ({x0:.2f},{y0:.2f}) rectangle "
                          rf"({x1:.2f},{y1:.2f});")
             if style:
                 lines.append(rf"\fill[{style}] ({x0:.2f},{y0:.2f}) rectangle ({x1:.2f},{y1:.2f});")
+            if t is not None and t.form == "tile":                     # a tile: smooth, an inner edge
+                lines.append(rf"\draw[{stud_ink}, line width=0.3pt] ({x0 + 0.12:.2f},{y0 + 0.12:.2f}) rectangle "
+                             rf"({x1 - 0.12:.2f},{y1 - 0.12:.2f});")
         if b.is_brick or (t is not None and t.form != "round") or b.is_special:
             for a in range(b.i, b.i + b.w):
                 for q in range(b.j, b.j + b.d):
@@ -110,6 +122,25 @@ def _plan(model, k: int, colours: np.ndarray, unit_cm: float, special_no: Dict[i
         if b.is_special:
             lines.append(rf"\node[font=\tiny\bfseries, fill=white, inner sep=1pt] at ({b.i + b.w / 2:.2f},"
                          rf"{b.j + b.d / 2:.2f}) {{S{special_no[n]}}};")
+    for q, a in enumerate(getattr(model, "assemblies", None) or ()):
+        if q not in mounted:
+            continue
+        if a.supports:
+            cells = [(i, j) for i, j, kk in a.supports]
+        else:
+            cells = sorted({(i, j) for i, j, kk in a.cells if kk == k})
+        for i, j in cells:
+            lines.append(rf"\filldraw[fill=white, draw=black, line width=0.6pt] ({i + 0.06:.2f},{j + 0.06:.2f}) rectangle "
+                         rf"({i + 0.94:.2f},{j + 0.94:.2f});")
+            lines.append(rf"\fill[pattern=crosshatch, pattern color=black!35] ({i + 0.06:.2f},{j + 0.06:.2f}) rectangle "
+                         rf"({i + 0.94:.2f},{j + 0.94:.2f});")
+        if a.supports and len(cells) >= 2:
+            (i0, j0), (i1, j1) = cells[0], cells[-1]
+            lines.append(rf"\draw[black, line width=2pt] ({i0 + 0.5},{j0 + 0.5}) -- ({i1 + 0.5},{j1 + 0.5});")
+        if cells:
+            ci = sum(c[0] for c in cells) / len(cells) + 0.5
+            cj = sum(c[1] for c in cells) / len(cells) + 0.5
+            lines.append(rf"\node[font=\tiny\bfseries, fill=white, inner sep=1pt] at ({ci:.2f},{cj:.2f}) {{A{q + 1}}};")
     lines.append(r"\end{tikzpicture}")
     return "\n".join(lines)
 
@@ -135,6 +166,62 @@ def _group(model, indices, colours, names) -> List[tuple]:
     return sorted(((a, b, c, v) for (a, b, c), v in count.items()), key=lambda r: (name_sort_key(r[0]), r[2]))
 
 
+def _technic_rows(assemblies) -> List[tuple]:
+    """Parts-table rows (name, colour id, colour name, count) for the axle sub-assemblies' parts."""
+    from .technic import PARTS
+    count: Dict[tuple, int] = {}
+    for a in assemblies:
+        for (key, colour), n in a.part_counts().items():
+            k = (PARTS[key].name, _tex_colour_id(PALETTE.get(colour, (0.6, 0.6, 0.6))), colour.replace("_", " "))
+            count[k] = count.get(k, 0) + n
+    return sorted(((a, b, c, v) for (a, b, c), v in count.items()), key=lambda r: (r[0], r[2]))
+
+
+def _assembly_pages(assemblies, result, out: Path, pictures: bool, say, layers) -> List[str]:
+    """A page per axle sub-assembly: its picture on its own, what goes onto the axle in which order, its parts, and
+    the step it is mounted in."""
+    from .technic import PARTS
+    doc = [r"\clearpage", r"\section*{Sub-assemblies}",
+           r"Parts with a cross hole threaded onto an axle: build each first, then mount it in its step. A lying axle "
+           r"is held at both ends by a brick with an axle hole; an upright stack sits on studs like any part."]
+    step_of = {k: n for n, k in enumerate(layers, start=1)}
+    for q, a in enumerate(assemblies):
+        name = f"A{q + 1}"
+        doc.append(r"\clearpage" if q else r"\par\vspace{4mm}")
+        doc.append(rf"\subsection*{{Sub-assembly {name}}}")
+        pic = None
+        if pictures:
+            try:
+                from lego_gui.scene import render_assembly
+                pic = render_assembly(a, result.grid, result.system, out / "img" / f"assembly_{name}.png")
+            except Exception as exc:                                          # no VTK / OpenGL
+                say(f"no picture of {name} ({str(exc).splitlines()[0][:100]})")
+        if pic is not None:
+            doc.append(rf"\begin{{center}}\includegraphics[width=0.62\textwidth]{{img/{Path(pic).name}}}\end{{center}}")
+        along = "upwards" if a.axis == 2 else ("from left to right (along x)" if a.axis == 0 else "front to back (along y)")
+        axles = ", ".join(PARTS[k].name for k in a.axles) or "no axle (the studs hold it)"
+        doc.append(rf"\textbf{{Axle}}: {tex_escape(axles)}.\par")
+        if a.supports:
+            doc.append(r"\textbf{Ends}: through a brick 1x1 with axle hole at each end.\par")
+        seq = [rf"{tex_escape(PARTS[k].name)} ({tex_escape(c.replace('_', ' '))})" for k, _o, c in a.parts]
+        runs, prev, n = [], None, 0
+        for item in seq + [None]:
+            if item == prev:
+                n += 1
+                continue
+            if prev is not None:
+                runs.append(prev + (rf" $\times$ {n}" if n > 1 else ""))
+            prev, n = item, 1
+        doc.append(rf"\textbf{{Thread on}}, {along}: " + "; ".join(runs) + r".\par")
+        if layers:
+            k = next((x for x in layers if x >= a.mount_layer), layers[-1])
+            doc.append(rf"\textbf{{Mounted in}}: step {step_of[k]} (layer {k}).\par")
+        else:                                        # artsy: a round part can be one stack, no bricks at all
+            doc.append(r"\textbf{Done}: this sub-assembly is the whole model - it stands on its own.\par")
+        doc.append(_parts_table(_technic_rows([a])))
+    return doc
+
+
 def write_manual(result, out_dir, colours: Optional[np.ndarray] = None, title: Optional[str] = None,
                  pictures: bool = True, pdf: bool = True, progress=None, images: Optional[Dict] = None) -> Dict:
     """Write the building manual of `result` into `out_dir`; returns {"tex", "pdf" (or None), "steps", "pictures",
@@ -142,7 +229,7 @@ def write_manual(result, out_dir, colours: Optional[np.ndarray] = None, title: O
     (lego_gui.scene.render_steps into out_dir/img - the window renders them in its own thread)."""
     say = progress or (lambda _t: None)
     model, grid, system = result.model, result.grid, result.system
-    if not model.bricks:
+    if model.empty:
         raise ValueError("nothing to build: the model has no bricks")
     out = Path(out_dir)
     (out / "img").mkdir(parents=True, exist_ok=True)
@@ -165,7 +252,9 @@ def write_manual(result, out_dir, colours: Optional[np.ndarray] = None, title: O
     unit = min(0.6, 8.4 / max(nx, ny))             # the plan beside the picture: at most 8.4 cm
     st = result.stats
     fit = system.fit()
-    used = sorted({_tex_colour_id(c): c for c in cols}.items())
+    asm = list(getattr(model, "assemblies", None) or ())
+    asm_rgb = [np.asarray(PALETTE[c], float) for a in asm for (_k, c) in a.part_counts() if c in PALETTE]
+    used = sorted({_tex_colour_id(c): c for c in list(cols) + asm_rgb}.items())
     defs = "\n".join(rf"\definecolor{{{cid}}}{{rgb}}{{{c[0]:.4f},{c[1]:.4f},{c[2]:.4f}}}" for cid, c in used)
     doc = [r"\documentclass[a4paper,11pt]{article}",
            r"\usepackage[margin=16mm]{geometry}",
@@ -182,17 +271,21 @@ def write_manual(result, out_dir, colours: Optional[np.ndarray] = None, title: O
     if images.get("final"):
         doc.append(rf"\includegraphics[width=0.82\textwidth]{{img/{Path(images['final']).name}}}\par\vspace{{6mm}}")
     extra = "".join(f", {st[k]} {k}" for k in ("shaped", "special") if st.get(k))
+    tp = int(st.get("technic_parts") or 0)                 # artsy: the parts threaded on axles count too
+    extra += f", {tp} Technic" if tp else ""
     grid_text = r" $\times$ ".join(str(x) for x in st["grid"])
     doc += [r"\begin{tabular}{@{}ll@{}}",
-            rf"Parts & {st['bricks']}{tex_escape(extra)} \\",
+            rf"Parts & {st['bricks'] + tp}{tex_escape(extra)} \\",
             rf"Layers & {st['layers']} ({tex_escape(result.settings.unit)}s, {grid.cell[2]:g}\,mm) \\",
             rf"Size & {st['size_mm'][0]:g} $\times$ {st['size_mm'][1]:g} $\times$ {st['size_mm'][2]:g}\,mm \\",
             rf"Grid & {grid_text} cells, pitch {system.pitch:g}\,mm \\",
             rf"Stud play & {fit['stud_play']:g}\,mm (wall {fit['wall']:g}, tube {fit['tube_outer']:g}, socket "
             rf"{fit['socket_diameter']:g}\,mm) \\",
             rf"Holds together & {'yes' if st['stable'] else 'no: ' + str(st['groups']) + ' groups, ' + str(st['floating']) + ' floating'} \\",
-            r"\end{tabular}", r"\end{titlepage}"]
-    doc += [r"\section*{Parts}", _parts_table(_group(model, range(len(model.bricks)), cols, names)).replace(
+            r"\end{tabular}", r"\vfill",
+            rf"{{\footnotesize {tex_escape(NOTICE)}\par}}", r"\end{titlepage}"]
+    doc += [r"\section*{Parts}", _parts_table(_group(model, range(len(model.bricks)), cols, names)
+                                                + _technic_rows(asm)).replace(
         r"\begin{tabular}", r"\begin{longtable}").replace(r"\end{tabular}", r"\end{longtable}")]
     doc += [r"\subsection*{How to read the steps}",
             r"Each step is one layer. The picture shows the model so far, the new layer bright. The plan shows the "
@@ -201,6 +294,12 @@ def write_manual(result, out_dir, colours: Optional[np.ndarray] = None, title: O
             r"Quarter circles are round or dome corners, full circles round bricks. Hatched parts marked "
             r"\textbf{S}$n$ are special pieces: custom parts with the input's exact shape, printed from the STL "
             r"stack (\texttt{bricks/special\_NNNNN.stl})."]
+    if asm:
+        doc += _assembly_pages(asm, result, out, pictures, say, layers)
+    mount = {}                                       # the step an assembly goes in: its layer, or the next with parts
+    for q, a in enumerate(asm if layers else ()):
+        k = next((x for x in layers if x >= a.mount_layer), layers[-1])
+        mount.setdefault(k, []).append(q)
     for s_no, k in enumerate(layers, start=1):
         idx = model.layer_bricks(k)
         doc.append(r"\clearpage")
@@ -212,8 +311,13 @@ def write_manual(result, out_dir, colours: Optional[np.ndarray] = None, title: O
         if images.get(k):
             doc.append(rf"\includegraphics[width=\linewidth]{{img/{Path(images[k]).name}}}")
         doc.append(r"\end{minipage}\hfill\begin{minipage}[c]{0.48\textwidth}\centering")
-        doc.append(_plan(model, k, cols, unit, special_no))
+        doc.append(_plan(model, k, cols, unit, special_no, mount.get(k, ())))
         doc.append(r"\end{minipage}\par\vspace{5mm}")
+        for q in mount.get(k, ()):
+            a = asm[q]
+            what = ("its two bricks with axle hole go on the cells marked A%d" % (q + 1) if a.supports else
+                    "its lowest part goes on the cells marked A%d" % (q + 1))
+            doc.append(rf"\textbf{{Mount sub-assembly A{q + 1}}}: {what}.\par\vspace{{2mm}}")
         rows = _group(model, idx, cols, names)
         ncol = 1 if len(rows) <= 14 else 2 if len(rows) <= 40 else 3
         per = -(-len(rows) // ncol)

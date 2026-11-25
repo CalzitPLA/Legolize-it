@@ -17,6 +17,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
+from .catalogues import NOTICE
 from .export_manual import _tex_colour_id, tex_escape
 from .palette import PALETTE
 from .shop import FREE_FROM, Order
@@ -31,7 +32,8 @@ TEXT: Dict[str, Dict[str, str]] = {
                     "{ship} EUR (free from {free} EUR).",
            "spare": "Packs often hold more than needed - the rest is stock for the next model.",
            "missing": "Not available as a standard pack", "count": "Count", "why": "Why",
-           "shaped": "shaped piece: not a standard pack", "unsold": "no pack of this size and colour in stock",
+           "shaped": "shaped piece: not a standard pack",
+           "technic": "Technic part: not in the part packs - see the maker's website", "unsold": "no pack of this size and colour in stock",
            "brick": "Brick", "plate": "Plate", "yes": "yes", "instead": "instead of",
            "as_plates": "3 per brick {part}",
            "substitutes": "Colours marked \\emph{instead of} are the nearest colour the shop sells in that part."},
@@ -44,7 +46,8 @@ TEXT: Dict[str, Dict[str, str]] = {
                     "Versand {ship} EUR (versandkostenfrei ab {free} EUR).",
            "spare": "Packs enthalten oft mehr als nötig - der Rest ist Vorrat für das nächste Modell.",
            "missing": "Nicht als Standard-Pack erhältlich", "count": "Anzahl", "why": "Grund",
-           "shaped": "Formteil: kein Standard-Pack", "unsold": "kein Pack dieser Größe und Farbe vorrätig",
+           "shaped": "Formteil: kein Standard-Pack",
+           "technic": "Technic-Teil: nicht in den Teile-Packs - siehe die Website des Herstellers", "unsold": "kein Pack dieser Größe und Farbe vorrätig",
            "brick": "Stein", "plate": "Platte", "yes": "ja", "instead": "statt",
            "as_plates": "3 je Stein {part}",
            "substitutes": "Mit \\emph{statt} markierte Farben: die nächste Farbe, die der Shop in diesem Teil hat."},
@@ -88,7 +91,10 @@ def write_order(order: Order, out_dir, lang: str = "de", title: Optional[str] = 
     lines = sorted(order.lines, key=lambda x: (colour_name(x.colour, lang), x.unit, x.part))
 
     def part(unit, p, x=None):
-        name = f"{t[unit]} {p}"
+        if unit == "technic":                                           # artsy: a part on an axle - not in the packs
+            from .technic import PARTS
+            return PARTS[p].name if p in PARTS else p
+        name = f"{t.get(unit, unit)} {p}"
         if x is not None and x.plates_per_brick > 1:                    # a brick the shop lacks, bought as 3 plates
             name += " (" + t["as_plates"].format(part=p) + ")"
         return name
@@ -133,6 +139,7 @@ def write_order(order: Order, out_dir, lang: str = "de", title: Optional[str] = 
                "|---|---|---:|---|"]
         md += [f"| {part(m.unit, m.part)} | {colour_name(m.colour, lang)} | {m.need} ({per(m.per_model)}) | "
                f"{t[m.why]} |" for m in order.missing]
+    md += ["", f"*{NOTICE}*"]
     (out / "order.md").write_text("\n".join(md) + "\n", encoding="utf-8")
 
     cols = {}
@@ -178,7 +185,7 @@ def write_order(order: Order, out_dir, lang: str = "de", title: Optional[str] = 
         doc += [rf"{tex_escape(part(m.unit, m.part))} & {sw(m.colour)}{tex_escape(colour_name(m.colour, lang))} & "
                 rf"{m.need} ({tex_escape(per(m.per_model))}) & {tex_escape(t[m.why])} \\" for m in order.missing]
         doc += [r"\bottomrule", r"\end{longtable}"]
-    doc.append(r"\end{document}")
+    doc += [r"\vfill", rf"{{\footnotesize {tex_escape(NOTICE)}\par}}", r"\end{document}"]
     tex = out / "order.tex"
     tex.write_text("\n".join(doc) + "\n", encoding="utf-8")
     res: Dict[str, Optional[str]] = {"tex": str(tex), "md": str(out / "order.md"), "csv": str(out / "order.csv"),

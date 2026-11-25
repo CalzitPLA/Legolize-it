@@ -37,20 +37,35 @@ def connectivity(model: BrickModel) -> Dict:
     """{"groups": number of connected groups, "largest": bricks in the largest, "floating": [brick indices of the
     groups that do not reach the lowest layer], "group_of": [group id per brick]}."""
     n = len(model.bricks)
-    if n == 0:
-        return {"groups": 0, "largest": 0, "floating": [], "group_of": []}
-    uf = _UnionFind(n)
+    asm = list(getattr(model, "assemblies", None) or ())
+    if n == 0 and not asm:
+        return {"groups": 0, "largest": 0, "floating": [], "group_of": [], "floating_assemblies": []}
+    uf = _UnionFind(n + len(asm))
     ids = model.ids
+    nz = ids.shape[2]
     studs, seats = model.studs, model.seats
-    for k in range(1, ids.shape[2]):
+    for k in range(1, nz):
         a, b = ids[:, :, k], ids[:, :, k - 1]
         both = (a >= 0) & (b >= 0) & seats[:, :, k] & studs[:, :, k - 1]
         if both.any():
             for x, y in set(zip(a[both].tolist(), b[both].tolist())):
                 uf.union(x, y)
-    roots = [uf.find(m) for m in range(n)]
-    lowest = min(b.layer for b in model.bricks)
+    # an assembly (an axle and what is threaded on it) is one rigid node, held where its support bricks sit on studs
+    # and where something sits on their studs (lego_engine.assembly)
+    bottoms = []
+    for q, a in enumerate(asm):
+        node = n + q
+        for i, j, k in a.seat_cells():
+            if k > 0 and ids[i, j, k - 1] >= 0 and studs[i, j, k - 1]:
+                uf.union(node, int(ids[i, j, k - 1]))
+        for i, j, k in a.stud_cells():
+            if k + 1 < nz and ids[i, j, k + 1] >= 0 and seats[i, j, k + 1]:
+                uf.union(node, int(ids[i, j, k + 1]))
+        bottoms.append(min([k for _i, _j, k in a.seat_cells()] or [nz]))
+    roots = [uf.find(m) for m in range(n + len(asm))]
+    lowest = min([b.layer for b in model.bricks] + bottoms)
     grounded = {roots[m] for m, b in enumerate(model.bricks) if b.layer == lowest}
+    grounded |= {roots[n + q] for q, k in enumerate(bottoms) if k == lowest}
     sizes: Dict[int, int] = {}
     for r in roots:
         sizes[r] = sizes.get(r, 0) + 1
@@ -58,7 +73,9 @@ def connectivity(model: BrickModel) -> Dict:
     order = {r: g for g, r in enumerate(sorted(sizes, key=lambda r: -sizes[r]))}
     return {"groups": len(sizes), "largest": max(sizes.values()),
             "floating": [m for m in range(n) if roots[m] not in grounded],
-            "group_of": [order[r] for r in roots]}
+            "group_of": [order[r] for r in roots[:n]],
+            "floating_assemblies": [q for q in range(len(asm)) if roots[n + q] not in grounded],
+            "assembly_group": [order[roots[n + q]] for q in range(len(asm))]}
 
 
 def layer_islands(model: BrickModel) -> List[int]:
@@ -81,7 +98,16 @@ def stats(model: BrickModel, system: BrickSystem, unit: str) -> Dict:
                           "axis": model.layer_axis.get(k, "x")})
     above = np.zeros_like(occ)
     above[:, :, :-1] = occ[:, :, 1:]
-    return {
+    asm = list(getattr(model, "assemblies", None) or ())
+    if asm:                                         # an assembly covers the studs under its support bricks
+        from .assembly import cells_mask
+        above[:, :, :-1] |= cells_mask(asm, occ.shape)[:, :, 1:]
+    technic: Dict[str, int] = {}
+    for a in asm:
+        for (key, _colour), c in a.part_counts().items():
+            technic[key] = technic.get(key, 0) + c
+    floating = len(con["floating"]) + len(con.get("floating_assemblies", []))
+    out = {
         "bricks": len(model.bricks),
         "shaped": sum(1 for b in model.bricks if b.kind and not b.is_special),
         "special": sum(1 for b in model.bricks if b.is_special),
@@ -95,6 +121,11 @@ def stats(model: BrickModel, system: BrickSystem, unit: str) -> Dict:
         "per_layer": per_layer,
         "groups": con["groups"],
         "largest_group": con["largest"],
-        "floating": len(con["floating"]),
-        "stable": con["groups"] == 1 and not con["floating"],
+        "floating": floating,
+        "stable": con["groups"] == 1 and not floating,
     }
+    if asm:
+        out["assemblies"] = len(asm)
+        out["technic"] = dict(sorted(technic.items()))
+        out["technic_parts"] = sum(technic.values())
+    return out
