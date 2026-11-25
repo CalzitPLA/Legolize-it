@@ -9,7 +9,6 @@ size in studs along the longest side (the settings' "Size", kept in step).
 """
 from __future__ import annotations
 
-import subprocess
 import time
 from pathlib import Path
 from typing import Optional
@@ -23,6 +22,11 @@ from lego_gui.viewer import LOGO, BrickView
 from lego_gui.worker import Worker
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def open_path(path):
+    """A file or folder in the desktop's own program (Linux, macOS, Windows - not xdg-open, which is Linux only)."""
+    QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(path)))
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -346,7 +350,7 @@ class MainWindow(QtWidgets.QMainWindow):
             box.addButton("Later", QtWidgets.QMessageBox.RejectRole)
             box.exec_()
             if box.clickedButton() is view:
-                subprocess.Popen(["xdg-open", doc], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                open_path(doc)
         else:
             self.last_fcstd = info
             self.a_open_fc.setEnabled(True)
@@ -387,7 +391,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def open_folder(self):
         target = Path(self.last_stl) if self.last_stl else (self._default_dir() if self.result else RESULTS)
         target.mkdir(parents=True, exist_ok=True)
-        subprocess.Popen(["xdg-open", str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        open_path(target)
 
     # ----------------------------------------------------------------------------------------------- misc
     def dragEnterEvent(self, event):

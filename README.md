@@ -17,6 +17,19 @@ The layout follows SHaPe ReCo's: an engine package (`lego_engine/`, like `reco_e
 (`lego_gui/`, like `reco_gui/`), `install.sh` with a command and a desktop entry, `tests/`, and the logo pipeline in
 `packaging/logo/`.
 
+## Showcase: the ATLAS detector at CERN, artsy
+
+<p align="center"><img src="docs/images/atlas_artsy.jpg" width="860" alt="The ATLAS detector in plates and Technic
+parts: an open octagonal frame with blue chamber panels, eight orange and white striped toroid coils on axles, a black
+and orange calorimeter, tan and blue sectored wheels at both ends, on a dark grey base"></p>
+
+*ATLAS at 1:85 in plates, in artsy mode with the parts LEGO sells: 9,247 parts - 8,573 plates, tiles, round plates
+and bars, 674 Technic™ parts - 57 x 32 x 30 cm. The input is a stylised detector made from the real one's main dimensions,
+inspired by Nathan Readioff's Run-4 ATLAS model ([build-your-own-particle-detector.org](https://build-your-own-particle-detector.org/models/atlas-run-4-model/)):
+the eight toroid coils are 17 axle stacks of orange and white round bricks and plates, held by bricks with an axle hole
+in the frame; the front stays open to show the calorimeter. It holds together as one group, comes with a building
+manual and an order list for LEGO Pick a Brick (about 1,035 EUR on 2026-11-24 - prices change).*
+
 ## What it does
 
 <p align="center"><img src="docs/images/shaped_pieces.png" width="860" alt="A sphere in plain bricks, the same sphere with
@@ -88,24 +101,104 @@ along.
 
 ## Install
 
+Legolize it needs **Python 3.10 or newer** with numpy, scipy, trimesh, libigl and manifold3d, and PyQt5, vtk and
+Pillow for the window (`requirements.txt`, `requirements-gui.txt`). Optional: **FreeCAD 1.0** (`freecadcmd`) for STEP
+input and the FreeCAD export, and **pdflatex** for the PDFs of the manual and the order lists (without it they stay
+LaTeX). Tested on Debian 13; macOS and Windows without WSL are not tested yet - the steps below follow what the program
+needs, please report what fails.
+
+### Debian
+
 ```bash
-./install.sh            # environment ~/.local/share/legolize-it/venv (with the system's packages), the command
-                        # legolize-it, the desktop entry "Legolize it" and its icon; run it again to update
-                        # (after a git pull: the command runs this folder's code)
+sudo apt install git python3 python3-venv python3-numpy python3-scipy python3-pyqt5 python3-pil \
+                 freecad texlive-latex-base texlive-latex-recommended texlive-pictures lmodern
+git clone https://github.com/CalzitPLA/Legolize-it.git
+cd Legolize-it
+./install.sh            # environment ~/.local/share/legolize-it/venv (with the system's packages; pip adds trimesh,
+                        # libigl, manifold3d, vtk), the command legolize-it, the desktop entry "Legolize it" and its
+                        # icon; run it again to update (after a git pull: the command runs this folder's code)
 legolize-it check       # packages, FreeCAD, the desktop entry, one part into bricks with both exports and the same
                         # part in artsy mode
-legolize-it uninstall   # the command, the desktop entry, the icons and the environment (= ./install.sh --uninstall);
-                        # your results in ~/legolize_results stay
-legolize-it uninstall --purge   # also the caches (~/.cache/legolize) and the server list (~/.config/legolize-it)
 ```
 
 The desktop entry opens the window in the mode *Detailed*; right-click it in the applications menu or the dock for
 *Legolize it - artsy mode* and *Legolize it - bricky mode* (the same as `legolize-it --artsy` and
-`legolize-it --bricks-only`). It opens STL, STEP, PLY, OBJ, 3MF, glTF and OFF files.
+`legolize-it --bricks-only`). It opens STL, STEP, PLY, OBJ, 3MF, glTF and OFF files. Other Linux systems: the same
+with their own packages (`./install.sh --no-system` takes every Python package from PyPI instead).
 
-Needs Python >= 3.10 with numpy, scipy, trimesh, libigl, manifold3d (and PyQt5, vtk for the window) -
-`requirements*.txt`. FreeCAD's `freecadcmd` is used for STEP input and the FreeCAD export
-(`$LEGOLIZE_FREECADCMD`, else `freecadcmd` on the PATH, else `/usr/bin/freecadcmd`).
+### macOS (not tested)
+
+```bash
+xcode-select --install                     # git and the compilers
+brew install python@3.12                   # Homebrew (https://brew.sh), or Python from python.org
+git clone https://github.com/CalzitPLA/Legolize-it.git
+cd Legolize-it
+PYTHON="$(brew --prefix python@3.12)/bin/python3.12" ./install.sh --no-system
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc       # the command legolize-it, in new terminals
+legolize-it check
+```
+
+FreeCAD: put FreeCAD 1.0 from [freecad.org](https://www.freecad.org) into *Applications* and tell Legolize it where
+its programs are (the names inside the app can differ between FreeCAD versions - look with `ls`):
+
+```bash
+echo 'export LEGOLIZE_FREECADCMD=/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd' >> ~/.zshrc
+echo 'export LEGOLIZE_FREECAD=/Applications/FreeCAD.app/Contents/MacOS/FreeCAD' >> ~/.zshrc   # "Open in FreeCAD"
+```
+
+PDFs: `brew install --cask mactex-no-gui`. There is no desktop entry on macOS: start the window with `legolize-it`.
+If pip finds no PyQt5 for your Mac, install it with Homebrew (`brew install pyqt@5`) and run `./install.sh` with the
+Python that pyqt@5 belongs to, without `--no-system`.
+
+### Windows
+
+The tested way is **WSL** (Windows Subsystem for Linux) with Debian - Windows 11 shows the Linux window on the desktop.
+In PowerShell as administrator:
+
+```powershell
+wsl --install -d Debian          # then restart, open "Debian" from the start menu and follow the Debian steps above
+```
+
+Without WSL (not tested): install [Python 3.12](https://www.python.org) (tick *Add python.exe to PATH*),
+[Git](https://git-scm.com), and optionally FreeCAD 1.0 and [MiKTeX](https://miktex.org) for the PDFs. Then in
+PowerShell:
+
+```powershell
+git clone https://github.com/CalzitPLA/Legolize-it.git
+cd Legolize-it
+py -3.12 -m venv "$env:LOCALAPPDATA\legolize-it\venv"
+$py = "$env:LOCALAPPDATA\legolize-it\venv\Scripts\python.exe"
+& $py -m pip install -r requirements.txt -r requirements-gui.txt
+& $py -m lego_gui                                    # the window - run it from the Legolize-it folder
+& $py -m lego_engine part.stl --studs 24 --manual    # the command line
+setx LEGOLIZE_FREECADCMD "C:\Program Files\FreeCAD 1.0\bin\freecadcmd.exe"   # FreeCAD, for new terminals
+setx LEGOLIZE_FREECAD "C:\Program Files\FreeCAD 1.0\bin\freecad.exe"         # "Open in FreeCAD"
+```
+
+Windows gets no `legolize-it` command and no start-menu entry this way.
+
+### Uninstall
+
+On Debian, other Linux, macOS and in WSL - wherever `./install.sh` installed it:
+
+```bash
+legolize-it uninstall            # the same as ./install.sh --uninstall
+legolize-it uninstall --purge    # also the caches and the list of servers
+cd .. && rm -rf Legolize-it      # the program's folder too, if you want it gone completely
+```
+
+- **Removed:** the command `~/.local/bin/legolize-it`, the desktop entry, the icons and the Python environment
+  `~/.local/share/legolize-it/venv`. An environment you placed outside your home folder (`./install.sh --venv DIR`)
+  is left alone - delete it yourself.
+- **Kept:** your models and exports in `~/legolize_results`, always. Without `--purge` also the caches in
+  `~/.cache/legolize` (tessellated STEP files, a BlueBrixx catalogue you crawled) and the server list
+  `~/.config/legolize-it`. The program's folder stays as well: `./install.sh` installs it again.
+- **WSL:** `wsl --unregister Debian` in PowerShell removes the whole Debian, with everything else in it.
+
+Windows without WSL: delete the folders `%LOCALAPPDATA%\legolize-it` (the environment) and `Legolize-it` (the
+program), and if you want, `%USERPROFILE%\.cache\legolize`, `%USERPROFILE%\.config\legolize-it` and your results
+in `%USERPROFILE%\legolize_results`; remove the two variables with
+`reg delete HKCU\Environment /v LEGOLIZE_FREECADCMD /f` (and the same for `LEGOLIZE_FREECAD`).
 
 ## Use
 
