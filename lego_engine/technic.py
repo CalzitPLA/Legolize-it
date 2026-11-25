@@ -83,15 +83,22 @@ AXLES = sorted((x for x in PARTS.values() if x.role == "axle"), key=lambda x: x.
 ON_AXLE = [x for x in PARTS.values() if x.role == "on_axle"]
 
 
-def axles_for(n: int) -> List[str]:
+def axles_for(n: int, off=()) -> List[str]:
     """Axles (and 2L connectors between them) for a span of n studs: one axle of exactly n if there is one, else the
-    fewest axles of the stock lengths joined end to end (a connector between two, its 2 studs inside the span)."""
+    fewest axles of the stock lengths joined end to end (a connector between two, its 2 studs inside the span).
+    `off`: parts switched off (lego_engine.catalogues) - [] when no axle is left, or the span needs a connector that
+    is off and no single axle is long enough."""
     n = int(n)
-    by_len = {x.studs_l: x.key for x in AXLES}
+    by_len = {x.studs_l: x.key for x in AXLES if x.key not in off}
+    if not by_len:
+        return []
     if n in by_len:
         return [by_len[n]]
     if n < min(by_len):
         return [by_len[min(by_len)]]
+    if "axle_joiner_2" in off:
+        longer = [a for a in by_len if a >= n]
+        return [by_len[min(longer)]] if longer else []
     best = None
     for a in sorted(by_len, reverse=True):
         rest = n - a
@@ -100,7 +107,8 @@ def axles_for(n: int) -> List[str]:
     if best:
         return [by_len[best[0]], "axle_joiner_2", by_len[best[1]]]
     longest = max(a for a in by_len if a <= n)
-    return [by_len[longest], "axle_joiner_2"] + axles_for(n - longest)
+    rest = axles_for(n - longest, off)
+    return [by_len[longest], "axle_joiner_2"] + rest if rest else []
 
 
 def standard_colour(key: str) -> str:

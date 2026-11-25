@@ -158,6 +158,7 @@ def write_view_colours(fcstd, colours: Dict[str, Tuple[tuple, int]], camera: Opt
 
 
 def _job(result, path: Path, name: str, include_input: bool, hollow: bool, freecad: str, tmp: Path) -> Dict:
+    from .catalogues import NOTICE
     from .geometry import manifold_mesh, special_print_solid, to_trimesh
     from .shapes import TYPES, outline, stud_cells_local
     model, grid, system = result.model, result.grid, result.system
@@ -166,7 +167,7 @@ def _job(result, path: Path, name: str, include_input: bool, hollow: bool, freec
            "origin": [float(x) for x in grid.origin], "hollow": bool(hollow),
            "bricks": [b.to_list() for b in model.bricks], "kinds": [b.kind for b in model.bricks],
            "turns": [b.rot for b in model.bricks], "input": None, "model_diagonal": float(np.linalg.norm(grid.size)),
-           "types": {}, "specials": {}, "stud_cells": {}, "contacts": []}
+           "types": {}, "specials": {}, "stud_cells": {}, "contacts": [], "notice": NOTICE}
     src = Path(str(result.settings.input))
     step = src.suffix.lower() in STEP_SUFFIXES
     if include_input and src.is_file():

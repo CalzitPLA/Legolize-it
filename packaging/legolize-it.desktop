@@ -2,7 +2,7 @@
 Type=Application
 Name=Legolize it
 GenericName=Parts into bricks
-Comment=Turn an STL/STEP part into bricks: bricky, detailed, or artsy with parts on Technic axles; FreeCAD, STL stack, building manual, orders
+Comment=Turn an STL/STEP part into bricks: bricky, detailed, or artsy with parts on Technic™ axles; FreeCAD, STL stack, building manual, orders
 Exec=legolize-it %f
 Icon=legolize-it
 Terminal=false

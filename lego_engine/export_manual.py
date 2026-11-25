@@ -21,13 +21,15 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
+from .catalogues import NOTICE
 from .palette import NAMES, PALETTE, snap_index
 from .system import name_sort_key
 
 
 def tex_escape(text: str) -> str:
     rep = {"\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#", "_": r"\_", "{": r"\{",
-           "}": r"\}", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}"}
+           "}": r"\}", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}",
+           "\u00ae": r"\textregistered{}", "\u2122": r"\texttrademark{}"}
     return "".join(rep.get(ch, ch) for ch in str(text))
 
 
@@ -280,7 +282,8 @@ def write_manual(result, out_dir, colours: Optional[np.ndarray] = None, title: O
             rf"Stud play & {fit['stud_play']:g}\,mm (wall {fit['wall']:g}, tube {fit['tube_outer']:g}, socket "
             rf"{fit['socket_diameter']:g}\,mm) \\",
             rf"Holds together & {'yes' if st['stable'] else 'no: ' + str(st['groups']) + ' groups, ' + str(st['floating']) + ' floating'} \\",
-            r"\end{tabular}", r"\end{titlepage}"]
+            r"\end{tabular}", r"\vfill",
+            rf"{{\footnotesize {tex_escape(NOTICE)}\par}}", r"\end{titlepage}"]
     doc += [r"\section*{Parts}", _parts_table(_group(model, range(len(model.bricks)), cols, names)
                                                 + _technic_rows(asm)).replace(
         r"\begin{tabular}", r"\begin{longtable}").replace(r"\end{tabular}", r"\end{longtable}")]

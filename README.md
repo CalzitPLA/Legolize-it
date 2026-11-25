@@ -10,6 +10,9 @@ it to **FreeCAD** (a coloured document, a solid per part, every stud fit sized f
 **STL stack for 3D printing** (one slab per layer that plugs into the next, or single parts with a parts list) and as
 a **building manual** (LaTeX and PDF, one step per layer). It runs here or **on a server over ssh**.
 
+Legolize it is not affiliated with, sponsored, authorised or endorsed by the LEGO Group or BlueBrixx - see
+[TRADEMARKS.md](TRADEMARKS.md).
+
 The layout follows SHaPe ReCo's: an engine package (`lego_engine/`, like `reco_engine/`), a PyQt5 + VTK window
 (`lego_gui/`, like `reco_gui/`), `install.sh` with a command and a desktop entry, `tests/`, and the logo pipeline in
 `packaging/logo/`.
@@ -37,10 +40,13 @@ are not connected to the bottom.*
    part (its *deviation*).
 5. **Three modes** (the window's *Mode*, see the picture below): *bricky* - plain bricks of the common sizes;
    *detailed* - shaped and special pieces, tiles on top, round rods, bars on clips; *artsy* - craftsmanship before
-   accuracy: round bodies become parts threaded on **Technic axles** (round bricks and plates with an axle hole,
+   accuracy: round bodies become parts threaded on **Technic™ axles** (round bricks and plates with an axle hole,
    gears, discs, rims), held by bricks with an axle hole or standing on studs; small detailed parts become printed
    pieces; mirror symmetry, no stray cells or colour specks, larger parts. The Technic parts are listed as bought in
    the parts list, the orders and the STL stack (`bought.csv`); the manual builds each axle stack first.
+   **The catalogue** decides which single parts there are, whatever the mode: *Standard* (every part this program can
+   lay, to print), *LEGO®* (the sizes and parts LEGO sells single) or *BlueBrixx™* (the brick and plate sizes of its part
+   packs) - and in it any part can be switched off one by one: a size, a tile, a bar, a shaped piece, a gear, an axle.
 6. **Parts that stack.** Every stud and what receives it - walls, tubes, posts, sockets - is sized from one
    tolerance, the stud play; the FreeCAD export measures stacked parts and finds no overlap and exactly that play.
 7. **Out:** a coloured **FreeCAD** document (a solid per part, a spreadsheet of dimensions), an **STL stack** to
@@ -106,7 +112,9 @@ Needs Python >= 3.10 with numpy, scipy, trimesh, libigl, manifold3d (and PyQt5, 
 **The window:** `legolize-it [part.stl|part.step]` (or `python3 -m lego_gui`; `--artsy` or `--bricks-only` start in
 that mode). Open a part (or drop it on the window), press *Legolize it* (F5).
 
-- left: the settings - the *Mode* on top sets the switches that make the look at once: *Bricky* (plain bricks of the
+- left: the settings - the *Catalogue* (*Standard*, *LEGO* or *BlueBrixx*, with a link to the maker's website; *Parts
+  ...* lists every part with a checkbox, greys out what is not in the range, and switches single parts off - the mode
+  stays); the *Mode* on top sets the switches that make the look at once: *Bricky* (plain bricks of the
   common sizes), *Detailed* (shaped and printed pieces, tiles, rods, bars - the window's start) or *Artsy* (artsy
   mode, see below: axle stacks, printed details, symmetry, the larger sizes up to 12 long); a switch changed by hand
   shows *Custom*; the command line's `--bricks-only` and `--artsy` start in Bricky and Artsy; then size (studs along
@@ -139,6 +147,8 @@ legolize-it cli part.step --studs 24 --unit plate --shapes all --special --stl l
 python3 -m lego_engine --help        # the same without the installed command
 ```
 
+`--range standard|lego|bluebrixx` limits the sizes and parts to a maker's range, `--parts-off gear_24,tile_6x2,4x8`
+switches single parts off, `--list-parts` lists every part's id and which ranges have it.
 `--shapes` takes `slope, curve, round, dome, inverted`, `all` or `none` (the default); `--details` takes `tiles, rods,
 bars`, `all` or `none` (the default) - parts for a set-like look, below; `--special [TOL]` adds special
 pieces where the best brick or piece leaves more than TOL of a cell wrong (0.3); `--colours` auto (default), source,
@@ -298,6 +308,22 @@ as one piece, the others are assemblies, single-layer flat parts or have detache
 - `examples/capsule.step` - a cylinder with a torus ring, a dome and a cone (made in FreeCAD): shaped pieces and
   exact special pieces;
 - `examples/manuals/` - the building manuals of the mushroom and the capsule (PDF).
+
+## The makers' ranges, trademarks
+
+The LEGO and BlueBrixx ranges in `lego_engine/catalogues.py` are kept to the facts this program needs - which brick
+sizes and part types exist, and part numbers to identify them - with none of the makers' names, pictures, prices or
+descriptions. For parts, colours, prices and stock see their websites:
+[LEGO Pick a Brick](https://www.lego.com/pick-and-build/pick-a-brick) and [BlueBrixx](https://www.bluebrixx.com).
+The LEGO range is the one read at Pick a Brick on 2026-11-24; BlueBrixx's comes from the part-pack catalogue (bricks
+and plates only - its other parts are not in the data). Shaped pieces are this program's own shapes, to print.
+
+LEGO® and Technic™ are trademarks of the LEGO Group, which does not sponsor, authorise or endorse this software.
+BlueBrixx™ is a trademark of its owner, who is not affiliated with this software either (more in
+[TRADEMARKS.md](TRADEMARKS.md)). The program carries this
+notice (`catalogues.NOTICE`) wherever it shows or writes the names: the window's *About* (F1) and *Parts* dialog,
+`legolize-it --help` and the command lines' help, the installer, the building manual's title page, the order lists,
+the STL stack's README.txt and the FreeCAD document's comment.
 
 ## Limits
 

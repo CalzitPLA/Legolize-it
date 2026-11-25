@@ -59,6 +59,15 @@ Read `README.md` (use, pipeline, limits) and `docs/CODEMAP.md` (modules, data fl
   (`socket_clearance`, 0.15): wall 1.35, tube 6.2137, post 2.9, socket 5.1. A round corner's outer cell is partly
   material without a seat: the stud below ran into it (6.8 mm3) until every cell over a stud got a socket.
   `stacking_check` (manifold3d) and the FreeCAD export's check (OpenCASCADE, 60 pairs): overlap 0, gap 0.15.
+- Makers' ranges (2026-11-25, asked: "keep copyright in mind and refer to their website"): `catalogues.py` holds
+  facts only - sizes, part types, part numbers; never the makers' names of parts, pictures, prices or descriptions;
+  link their websites for those, and keep the trademark notice (`catalogues.NOTICE`) wherever the program shows or
+  writes the names (the user asked, 2026-11-25: "add the trademarks to the software"; the name Legolize it stays):
+  README, About (F1), parts dialog, help texts, installer, manual title page, order lists, STL README.txt, FreeCAD
+  comment. Symbols (asked 2026-11-25, "a trademark tag for juristical safety"): LEGO® (registered for certain),
+  Technic™ and BlueBrixx™ (™ is always allowed; ® on a mark not known to be registered can be misleading);
+  TRADEMARKS.md says it at length; the README links it at the top. The CLI's `--catalogue` is the shop's price file (BlueBrixx), so the
+  range is `--range`.
 - Artsy mode (2026-11-24, asked: "use the lego rods and the more special parts were cross shaped rods fit in ... the
   focus shouldnt be anymore on the exact iou more on the craftmanship"): see README. Measured on the way: a stack
   filled two 9.6 mm bricks into every 16.5 mm stripe and ran 5 cm past its coil into the next wheel (now the closest

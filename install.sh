@@ -177,7 +177,8 @@ case "\${1:-}" in
   server) shift; exec "\$PY" -m lego_engine.remote "\$@" ;;
   shop) shift; exec "\$PY" -m lego_engine.shop "\$@" ;;
   --help-window) exec "\$PY" -m lego_gui --help ;;
-  -h|--help) sed -n '3,9p' "\$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '3,9p' "\$0" | sed 's/^# \{0,1\}//'
+             "\$PY" -c 'from lego_engine.catalogues import NOTICE; print(); print(NOTICE)'; exit 0 ;;
 esac
 exec "\$PY" -m lego_gui "\$@"
 LAUNCHER
@@ -195,3 +196,4 @@ command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$ICO
 case ":$PATH:" in *":$BIN:"*) ;; *) warn "$BIN is not on your PATH: add it, or start $BIN/legolize-it" ;; esac
 say "done: legolize-it (or 'Legolize it' in the applications menu, right-click: artsy / bricky mode);"
 echo "  legolize-it check tests the installation, legolize-it uninstall removes it"
+PYTHONPATH="$ROOT" "$VENV/bin/python" -c 'from lego_engine.catalogues import NOTICE; print(); print(NOTICE)' || true

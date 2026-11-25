@@ -126,7 +126,7 @@ def write_stl_stack(result, out_dir, mode: str = "layers", hollow_bricks: bool =
                 wr.writerow([key, PARTS[key].name, PARTS[key].designs[0], colour, n])
         manifest["files"]["bought"] = "bought.csv"
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
-    (out / "README.txt").write_text(_readme(manifest, result))
+    (out / "README.txt").write_text(_readme(manifest, result), encoding="utf-8")
     say(f"STL stack written to {out}")
     return manifest
 
@@ -149,4 +149,6 @@ def _readme(manifest: Dict, result) -> str:
         lines.append("")
     if s.get("floating"):
         lines.append(f"Warning: {s['floating']} bricks are not connected to the bottom layer (they would fall off).")
+    from .catalogues import NOTICE
+    lines += ["", NOTICE]
     return "\n".join(lines) + "\n"

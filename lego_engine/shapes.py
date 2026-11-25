@@ -281,12 +281,13 @@ class Fit:
     gain: List[float]
 
 
-def types_for(families: Sequence[str]) -> List[PieceType]:
-    return [t for t in CATALOGUE if t.family in families]
+def types_for(families: Sequence[str], off=()) -> List[PieceType]:
+    """The piece types of `families`, without those switched off (`off`: ids, lego_engine.catalogues)."""
+    return [t for t in CATALOGUE if t.family in families and t.key not in off]
 
 
 def fit_pieces(fine: FineSamples, occ: np.ndarray, allowed: np.ndarray, families: Sequence[str],
-               min_gain: float = 0.2, slack: float = 0.05, seat_min: float = 0.0) -> Fit:
+               min_gain: float = 0.2, slack: float = 0.05, seat_min: float = 0.0, off=()) -> Fit:
     """Choose shaped pieces (see the module docstring). `occ`: the cells that would be bricks; `allowed`: the cells a
     piece may cover (not thin-wall cells, not the inside of a hollow model). A piece must save `min_gain` cells in all
     and may not make any of its cells worse than the brick (or gap) there by more than `slack` of a cell - measured
@@ -298,7 +299,7 @@ def fit_pieces(fine: FineSamples, occ: np.ndarray, allowed: np.ndarray, families
     nx, ny, nz = occ.shape
     taken = np.zeros(occ.shape, bool)
     forbid = np.zeros(occ.shape, bool)
-    types = types_for(families)
+    types = types_for(families, off)
     if not types or fine.inside.shape[0] == 0:
         return Fit([], taken, forbid, [])
     s, N = fine.s, fine.n_points

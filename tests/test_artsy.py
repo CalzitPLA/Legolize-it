@@ -131,3 +131,17 @@ def test_a_part_that_is_one_stack_has_no_bricks_and_still_exports(tmp_path):
     man = write_manual(r, tmp_path / "manual", pdf=False)
     tex = Path(man["tex"]).read_text()
     assert "the whole model" in tex and "Technic" in tex
+
+
+def test_a_stack_only_result_json_gives_its_parts_to_the_shop(tmp_path):
+    col = trimesh.creation.cylinder(radius=8.0, height=48.0, sections=64)
+    col.apply_translation((0.0, 0.0, 24.0))
+    cap = trimesh.creation.cylinder(radius=20.0, height=9.6, sections=64)
+    cap.apply_translation((0.0, 0.0, 52.8))
+    r = _run(tmp_path, [col, cap], unit="plate")
+    if r.model.bricks:
+        pytest.skip("the part got bricks too: nothing special to test")
+    r.save_json(tmp_path / "result.json")
+    from lego_engine.shop import needs_from_json
+    got = needs_from_json(tmp_path / "result.json")
+    assert got and all(unit == "technic" for unit, _p, _c in got)

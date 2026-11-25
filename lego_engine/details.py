@@ -92,9 +92,13 @@ def bar_pieces(occ: np.ndarray, free: np.ndarray = None, lengths: Iterable[int] 
     return sorted(out, key=lambda pc: (pc[0].layer, pc[0].j, pc[0].i))
 
 
-def apply(model: BrickModel, details: Iterable[str], unit: str) -> Tuple[BrickModel, Dict[str, int]]:
-    """Tiles and rods on a laid model (see the module docstring): (the new model, {"tiles": n, "rods": n})."""
+def apply(model: BrickModel, details: Iterable[str], unit: str, off=()) -> Tuple[BrickModel, Dict[str, int]]:
+    """Tiles and rods on a laid model (see the module docstring): (the new model, {"tiles": n, "rods": n}). `off`:
+    parts switched off (ids, lego_engine.catalogues: "round_1" - no rods, "tile_4x2" ...)."""
     details = tuple(details)
+    off = set(off)
+    if "round_1" in off:
+        details = tuple(d for d in details if d != "rods")
     bricks = list(model.bricks)
     occ = model.occupancy
     if getattr(model, "assemblies", None):              # an axle sub-assembly covers what is under its support bricks
@@ -146,10 +150,10 @@ def apply(model: BrickModel, details: Iterable[str], unit: str) -> Tuple[BrickMo
                 continue
             L, W = max(b.w, b.d), min(b.w, b.d)
             key = f"tile_{L}x{W}"
-            if key in TYPES:
+            if key in TYPES and key not in off:
                 put(n, key, 0 if b.w >= b.d else 1)
                 counts["tiles"] += 1
-            elif tile_cover(b.w, b.d):
+            elif tile_cover(b.w, b.d, off):
                 split_by_layer.setdefault(b.layer, []).append(n)
         if split_by_layer:                  # larger plates on top: covered with tiles where the model holds as well
             from .analysis import connectivity
@@ -166,7 +170,7 @@ def apply(model: BrickModel, details: Iterable[str], unit: str) -> Tuple[BrickMo
                 added = 0
                 for n in split_by_layer[k]:
                     b = bricks[n]
-                    parts = tile_cover(b.w, b.d)
+                    parts = tile_cover(b.w, b.d, off)
                     for q, (a, c, w, d) in enumerate(parts):
                         L, W = max(w, d), min(w, d)
                         t = Brick(b.layer, b.i + a, b.j + c, w, d, f"tile_{L}x{W}", 0 if w >= d else 1)
@@ -190,13 +194,14 @@ def apply(model: BrickModel, details: Iterable[str], unit: str) -> Tuple[BrickMo
     return new, counts
 
 
-def tile_cover(w: int, d: int) -> List[Tuple[int, int, int, int]]:
+def tile_cover(w: int, d: int, off=()) -> List[Tuple[int, int, int, int]]:
     """Tiles that cover a w x d plate whose size has no tile: [(di, dj, w, d)] - strips two wide (one, for an odd
-    width) along its length, each the longest tiles that fit; [] when the plate has a tile of its own size."""
+    width) along its length, each the longest tiles that fit; [] when the plate has a tile of its own size. `off`:
+    tiles switched off (ids "tile_LxW")."""
     L, W = max(w, d), min(w, d)
-    if f"tile_{L}x{W}" in TYPES:
+    if f"tile_{L}x{W}" in TYPES and f"tile_{L}x{W}" not in off:
         return []
-    have = {(t.L, t.W) for t in TYPES.values() if t.form == "tile"}
+    have = {(t.L, t.W) for t in TYPES.values() if t.form == "tile" and t.key not in off}
 
     def strip(v, sw):                                         # tiles along a strip sw wide at v, or None
         got, u = [], 0

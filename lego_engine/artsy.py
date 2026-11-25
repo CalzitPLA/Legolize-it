@@ -303,11 +303,12 @@ def add_base(occ, taken, pad: int, force: bool = False):
 # --------------------------------------------------------------------------------------------- axle stacks
 
 
-def radius_classes(upright: bool) -> Dict[float, List[str]]:
-    """{radius: parts of that radius} - upright stacks only round plates and bricks 2x2 (studs on the grid)."""
+def radius_classes(upright: bool, off=()) -> Dict[float, List[str]]:
+    """{radius: parts of that radius} - upright stacks only round plates and bricks 2x2 (studs on the grid); `off`:
+    parts switched off (lego_engine.catalogues)."""
     out: Dict[float, List[str]] = {}
     for p in ON_AXLE:
-        if upright and p.key not in UPRIGHT_PARTS:
+        if (upright and p.key not in UPRIGHT_PARTS) or p.key in off:
             continue
         out.setdefault(p.radius, []).append(p.key)
     return out
@@ -338,15 +339,17 @@ def fill_run(keys: List[str], length: float) -> List[str]:
 
 
 def stack_parts(profile: np.ndarray, colours: List[str], upright: bool, snap: float = 0.0,
-                avail: Optional[Dict[str, tuple]] = None) -> List[Tuple[str, float, str]]:
+                avail: Optional[Dict[str, tuple]] = None, off=()) -> List[Tuple[str, float, str]]:
     """The parts along an axle for a profile [(t, outer radius, ...)] with a colour per slice. The profile is cut into
     runs of one colour whose radius stays within RADIUS_TOLERANCE of the run's mean; each run gets the radius class
     with the best score - its parts (as few and as thick as fill the run) plus RADIUS_WEIGHT per unit of relative
     radius error - so a run of 64 mm at 12 mm takes three rims 30x20 (5.5), not 27 discs 3x3 (27). Offsets from the
     profile's start (mm); no part overlaps the one before it; `snap` (mm, upright stacks: the layer height) puts every
     part's start on a multiple of it, so studs meet the layers. `avail` {part: colours a shop sells it in}: only
-    those parts in the run's colour (no entry: any colour)."""
-    classes = radius_classes(upright)
+    those parts in the run's colour (no entry: any colour). `off`: parts switched off (lego_engine.catalogues)."""
+    classes = radius_classes(upright, off)
+    if not classes:
+        return []
     radii = np.array(sorted(classes))
     t = profile[:, 0]
     step = float(np.median(np.diff(t))) if len(t) > 1 else 2.0
@@ -525,7 +528,8 @@ def prepare(mesh, placed: np.ndarray, grid, frac: np.ndarray, touched: Optional[
                 continue
             profile, colours = profile[s:e + 1], colours[s:e + 1]
             colours = slice_colours(profile, b0.axis, b0.line, mesh, placed) or colours
-            a = _stack(group, profile, colours, grid, unit, dict(getattr(settings, "technic_colours", ()) or ()))
+            a = _stack(group, profile, colours, grid, unit, dict(getattr(settings, "technic_colours", ()) or ()),
+                       off=set(getattr(settings, "parts_off", ()) or ()))
             if a is not None:
                 a = _surface_colours(a, mesh, placed, dict(getattr(settings, "technic_colours", ()) or ()))
                 assemblies.append(a)
@@ -646,19 +650,19 @@ def _not_nested(bodies: List[Body]) -> List[Body]:
 
 
 def _stack(group: List[Body], profile: np.ndarray, colours: List[str], grid, unit: str,
-           avail: Optional[Dict[str, tuple]] = None) -> Optional[Assembly]:
+           avail: Optional[Dict[str, tuple]] = None, off=()) -> Optional[Assembly]:
     """One axle stack for bodies that share an axle: the line snapped to the grid (a lying axle through cell centres at
     a support brick's hole height; an upright one on a cell corner, for 2x2 round parts, its parts on layer
     boundaries), the parts from the outer profile, support bricks just beyond both ends for a lying axle."""
     b0 = group[0]
     axis = b0.axis
     upright = axis == 2
-    if len(profile) < 2:
+    if len(profile) < 2 or (not upright and "support_1x1" in off):      # a lying axle needs its holders
         return None
     step = float(profile[1, 0] - profile[0, 0])
     t_start = float(profile[0, 0]) - step / 2                  # where the bodies begin along the axle (mm)
     h = float(grid.cell[2])
-    parts = stack_parts(profile, colours, upright, snap=h if upright else 0.0, avail=avail)
+    parts = stack_parts(profile, colours, upright, snap=h if upright else 0.0, avail=avail, off=off)
     if not parts:
         return None
     if upright:
@@ -668,7 +672,7 @@ def _stack(group: List[Body], profile: np.ndarray, colours: List[str], grid, uni
         start = float(grid.origin[2] + k0 * h)
         span = max(o + PARTS[k].length for k, o, _c in parts)
         n = int(np.floor(span / 8.0 + 1e-6))                # the axle stays inside the stack
-        axles = tuple(axles_for(n)) if n >= 2 else ()
+        axles = tuple(axles_for(n, off)) if n >= 2 else ()
         return place(Assembly(axis=2, line=line, start=start, axles=axles, parts=tuple(parts), name="stack"), grid)
     u = 1 - axis if axis < 2 else 0                            # the horizontal coordinate across a lying axle
     j = int(np.clip(np.floor((b0.line[0] - grid.origin[u]) / grid.cell[u]), 0, grid.shape[u] - 1))
@@ -691,7 +695,10 @@ def _stack(group: List[Body], profile: np.ndarray, colours: List[str], grid, uni
         idx = [0, 0, 0]
         idx[axis], idx[u], idx[2] = s, j, k
         supports.append(tuple(idx))
-    a = Assembly(axis=axis, line=line, start=start, axles=tuple(axles_for(s1 - s0 + 1)), parts=tuple(parts),
+    axles = tuple(axles_for(s1 - s0 + 1, off))
+    if not axles:                                                   # no axle left that spans it
+        return None
+    a = Assembly(axis=axis, line=line, start=start, axles=axles, parts=tuple(parts),
                  supports=tuple(supports), support_layers=3 if unit == "plate" else 1, name="stack")
     return place(a, grid)
 

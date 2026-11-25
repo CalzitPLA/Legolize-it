@@ -151,6 +151,10 @@ def turned(kind, rot, w, d):
 # ---------------------------------------------------------------------------------------------- the input
 
 doc = App.newDocument(job["name"])
+try:
+    doc.Comment = "Made with Legolize it. " + job.get("notice", "")      # the trademark notice
+except Exception:
+    pass
 inp = job.get("input")
 moved = None
 m = None

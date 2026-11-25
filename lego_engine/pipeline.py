@@ -71,6 +71,10 @@ class LegoSettings:
                                            # always ("on") or never ("off")
     technic_colours: Tuple[Tuple[str, Tuple[str, ...]], ...] = ()   # artsy: per Technic part (lego_engine.technic) the
                                            # colours a shop sells it in - axle stacks use only those; () = any
+    parts_range: str = "standard"          # the parts' range (lego_engine.catalogues): standard, lego, bluebrixx -
+                                           # a record of the choice; `sizes` and `parts_off` carry what it means
+    parts_off: Tuple[str, ...] = ()        # single parts left out (ids of lego_engine.catalogues: "tile_4x2", "bar_5",
+                                           # "round_1", "curve_2x1", "gear_24", "axle_32", "support_1x1", "2x4" ...)
 
     def to_dict(self) -> Dict:
         d = asdict(self)
@@ -98,6 +102,8 @@ class LegoSettings:
         if "details" in d:
             from .details import parse_details
             d["details"] = parse_details(d["details"])
+        if "parts_off" in d:
+            d["parts_off"] = tuple(d["parts_off"] or ())
         if "technic_colours" in d:
             tc = d["technic_colours"]
             d["technic_colours"] = tuple((k, tuple(v)) for k, v in (tc.items() if isinstance(tc, dict) else tc))
@@ -267,7 +273,9 @@ class Legolizer:
         solid_occ = occ
         occ = hollow(occ, settings.shell)
         base_occ = occ
-        sizes = normalise_sizes(settings.sizes, settings.max_length)
+        off = set(settings.parts_off)
+        sizes = normalise_sizes(tuple(s for s in settings.sizes if s in ((1, 1),) or f"{min(s)}x{max(s)}" not in off),
+                                settings.max_length)
         families = parse_families(settings.shapes)
         if art is not None and not families and settings.unit == "brick":
             families = ("curve", "round")                # artsy: round and curved pieces where they fit (brick layers:
@@ -280,7 +288,7 @@ class Legolizer:
                 allowed &= ~art.contacts                      # artsy: studded bricks where an assembly holds
             sysd = settings.system
             seat_min = round(min(0.95, (sysd.socket_depth + 0.6) / float(grid.cell[2])), 3)   # room for a socket
-            fit = fit_pieces(fine, occ, allowed, families, seat_min=seat_min) if families else \
+            fit = fit_pieces(fine, occ, allowed, families, seat_min=seat_min, off=off) if families else \
                 Fit([], np.zeros_like(occ), np.zeros_like(occ), [])
             pieces = list(fit.pieces)
             occ = occ | fit.taken
@@ -303,7 +311,10 @@ class Legolizer:
             laid = np.zeros_like(occ)
             for b, _st, _se in pieces:
                 laid[b.i:b.i + b.w, b.j:b.j + b.d, b.layer] = True
-            pieces += bar_pieces(occ, ~laid)
+            from .shapes import BAR_LENGTHS
+            lengths = [L for L in BAR_LENGTHS if f"bar_{L}" not in off]
+            if lengths:
+                pieces += bar_pieces(occ, ~laid, lengths)
         cell_colours = self._artsy_colours(self._cell_colours(mesh, placed, occ, grid, settings), art)
         labels = None
         if settings.colour_mode in ("source", "auto") and cell_colours is not None and cell_colours[1] is not None:
@@ -325,7 +336,7 @@ class Legolizer:
                                                                   colour_sizes, art, mesh, placed, grid)
         detail_counts = {}
         if details:
-            model, detail_counts = apply_details(model, details, settings.unit)
+            model, detail_counts = apply_details(model, details, settings.unit, off)
             detail_counts["bars"] = sum(1 for b in model.bricks if b.kind.startswith("bar_"))
         if any(b.is_special for b in model.bricks):
             from .geometry import manifold_mesh, special_solid
