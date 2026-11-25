@@ -19,9 +19,11 @@ Read `README.md` (use, pipeline, limits) and `docs/CODEMAP.md` (modules, data fl
   --manual --out DIR [--png P] [--server HOST]`; servers: `python3 -m lego_engine.remote list|add|check|sync`.
 - Logo: `python3 packaging/logo/make_logo.py` (~1.5 min; `--quick` for a 512 px look).
 - Installed: `legolize-it`, `legolize-it cli ...`, `legolize-it check`, `legolize-it shop crawl|order ...`.
-- Buying (BlueBrixx): `python3 -m lego_engine.shop crawl` (catalogue to ~/.cache/legolize/bluebrixx/, ~15 min,
-  resumes), then `--cheapest --order de` on the command line, or `python3 -m lego_engine.shop order
-  NAME=result.json|manual.tex ... --lang de --out DIR` for one order over several builds.
+- Buying (BlueBrixx): a dated snapshot of the catalogue is in the repository (`lego_engine/data/
+  bluebrixx_catalogue.json`, used when there is no own crawl - the user wants it so others need not load the shop's
+  servers; refresh it from a new `python3 -m lego_engine.shop crawl` only when asked), then `--cheapest --order de`
+  on the command line, or `python3 -m lego_engine.shop order NAME=result.json|manual.tex ... --lang de --out DIR`
+  for one order over several builds.
 
 ## Facts measured here (don't re-derive)
 
