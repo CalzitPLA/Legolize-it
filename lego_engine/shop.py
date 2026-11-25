@@ -241,6 +241,9 @@ def needs(result) -> Needs:
     for b, k in zip(result.model.bricks, idx):
         if not b.is_special:
             out[(result.settings.unit, b.name, NAMES[k])] += 1
+    for a in getattr(result.model, "assemblies", None) or ():   # artsy: axle sub-assemblies (unit "technic")
+        for (key, colour), n in a.part_counts().items():
+            out[("technic", key, colour)] += n
     return dict(out)
 
 
@@ -255,6 +258,11 @@ def needs_from_json(path) -> Needs:
     for (_L, _i, _j, w, dd), kind, k in zip(d["bricks"], d["kinds"], snap_index(np.asarray(d["colours"], float))):
         if kind != "special":
             out[(unit, label(kind, w, dd) if kind else size_name(w, dd), NAMES[k])] += 1
+    if d.get("assemblies"):
+        from .assembly import Assembly
+        for ad in d["assemblies"]:
+            for (key, colour), n in Assembly.from_dict(ad).part_counts().items():
+                out[("technic", key, colour)] += n
     return dict(out)
 
 

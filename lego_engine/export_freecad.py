@@ -218,6 +218,22 @@ def _job(result, path: Path, name: str, include_input: bool, hollow: bool, freec
             for m in sorted(set(under[(under >= 0) & st].tolist())):
                 sel = np.argwhere((under == m) & st)
                 job["contacts"].append([int(m), n, [[int(b.i + a), int(b.j + q)] for a, q in sel]])
+    job["technic"] = []                                      # artsy: the axle sub-assemblies' parts, as meshes (bought)
+    if getattr(model, "assemblies", None):
+        import trimesh
+        from .assembly import meshes
+        from .palette import PALETTE
+        from .technic import PARTS
+        q = 0
+        for a_no, a in enumerate(model.assemblies):
+            keys = list(a.axles) + [k for k, _o, _c in a.parts] + ["support_1x1"] * len(a.supports)
+            for key, (v, f, colour) in zip(keys, meshes(a, grid, system)):
+                mpath = tmp / f"technic_{q:05d}.stl"
+                trimesh.Trimesh(v, f, process=False).export(mpath)
+                job["technic"].append({"name": "Technic%05d" % q, "mesh": str(mpath), "colour": colour,
+                                       "rgb": list(PALETTE.get(colour, (0.6, 0.6, 0.6))),
+                                       "label": "A%d %s (%s)" % (a_no + 1, PARTS[key].name, colour.replace("_", " "))})
+                q += 1
     return job
 
 
@@ -227,7 +243,7 @@ def write_fcstd(result, path, include_input: bool = True, hollow: bool = True, c
     "objects", "bricks", "checks", "stacking", "fit", "coloured", "warnings"}. `colours`: per brick (default: the
     result's colour mode). `hollow`: bricks with their open underside (walls, tubes, posts) - else solid with sockets."""
     say = progress or (lambda _t: None)
-    if not result.model.bricks:
+    if result.model.empty:
         raise ValueError("nothing to export: the model has no bricks")
     freecad = freecad or find_freecadcmd()
     if freecad is None:
@@ -256,6 +272,9 @@ def write_fcstd(result, path, include_input: bool = True, hollow: bool = True, c
             if "Brick%05d" % n in present}
     if "Input" in present:
         view["Input"] = (INPUT_RGB, INPUT_TRANSPARENCY)
+    for t in job.get("technic", ()):                         # artsy: the Technic parts in their colours
+        if t["name"] in present:
+            view[t["name"]] = (tuple(float(x) for x in t["rgb"]), 0)
     grid = result.grid
     lo = np.minimum(grid.origin, result.placed_vertices.min(axis=0))
     hi = np.maximum(grid.origin + grid.size, result.placed_vertices.max(axis=0))

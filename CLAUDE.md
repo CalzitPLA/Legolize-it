@@ -59,6 +59,16 @@ Read `README.md` (use, pipeline, limits) and `docs/CODEMAP.md` (modules, data fl
   (`socket_clearance`, 0.15): wall 1.35, tube 6.2137, post 2.9, socket 5.1. A round corner's outer cell is partly
   material without a seat: the stud below ran into it (6.8 mm3) until every cell over a stud got a socket.
   `stacking_check` (manifold3d) and the FreeCAD export's check (OpenCASCADE, 60 pairs): overlap 0, gap 0.15.
+- Artsy mode (2026-11-24, asked: "use the lego rods and the more special parts were cross shaped rods fit in ... the
+  focus shouldnt be anymore on the exact iou more on the craftmanship"): see README. Measured on the way: a stack
+  filled two 9.6 mm bricks into every 16.5 mm stripe and ran 5 cm past its coil into the next wheel (now the closest
+  length mix, and no part beyond the body); trimesh's edge split and `merge_vertices()` (no merge_norm) left an
+  unwelded input as 22 000 single triangles - components are found by shared vertex positions (`artsy.components`);
+  a post that met its own group's brick counted as holding; a tile on a post's top hid the support brick's stud
+  (details treat assembly cells as covering); a stud-less shaped piece under a support (contact cells stay plain).
+  In plate layers artsy lays no shaped pieces (plate-height curves and round corners are mostly not real parts).
+  Pick a Brick sells axles in black (even lengths) and grey (odd), rims 18x14 only black and grey, round bricks 2x2
+  with axle hole in ten colours.
 - Details (2026-11-24, `details.py`, asked for "rods and bars ... a more lego like look"): tiles, rods and bars are
   piece types in `shapes.CATALOGUE` (forms "tile": a box without studs; "bar": two 1x1 clip plates and a 3.18 mm bar
   between, outline op "bar" in geometry and freecad_build) but are laid by rule, not by `fit_pieces` - they are not in

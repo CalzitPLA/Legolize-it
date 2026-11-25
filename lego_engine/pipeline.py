@@ -26,6 +26,8 @@ from .shapes import FAMILIES, Fit, deviation, fine_samples, fit_pieces, parse_fa
 from .system import DEFAULT_SIZES, BrickSystem, normalise_sizes
 from .voxelize import THIN_MODES, Grid, Placement, fill_fraction, hollow, occupancy, place, surface_cells, thin_cells
 
+STYLES = ("exact", "artsy")
+
 RESULTS = Path.home() / "legolize_results"
 
 
@@ -60,12 +62,22 @@ class LegoSettings:
                                            # snapping; e.g. a model in two colours, to share packs with others)
     details: Tuple[str, ...] = ()          # lego_engine.details.DETAILS: tiles (smooth tops), rods (round 1x1
                                            # columns), bars (on clips, for free-standing runs); () = none
+    style: str = "exact"                   # "exact": as close to the part as the cells allow; "artsy": built with
+                                           # craft (lego_engine.artsy - axle stacks, printed details, symmetry)
+    artsy_symmetry: str = "auto"           # artsy: mirror planes where the part nearly has them ("auto") or "off"
+    artsy_axles: bool = True               # artsy: round bodies as parts threaded on an axle
+    artsy_printed: bool = True             # artsy: small detailed parts as printed pieces
+    artsy_base: str = "auto"               # artsy: a display base when the model stands on parts apart ("auto"),
+                                           # always ("on") or never ("off")
+    technic_colours: Tuple[Tuple[str, Tuple[str, ...]], ...] = ()   # artsy: per Technic part (lego_engine.technic) the
+                                           # colours a shop sells it in - axle stacks use only those; () = any
 
     def to_dict(self) -> Dict:
         d = asdict(self)
         d["sizes"] = [list(s) for s in self.sizes]
         d["colour_sizes"] = {c: [list(s) for s in sz] for c, sz in self.colour_sizes}
         d["recolour"] = dict(self.recolour)
+        d["technic_colours"] = {k: list(v) for k, v in self.technic_colours}
         return d
 
     @classmethod
@@ -86,6 +98,9 @@ class LegoSettings:
         if "details" in d:
             from .details import parse_details
             d["details"] = parse_details(d["details"])
+        if "technic_colours" in d:
+            tc = d["technic_colours"]
+            d["technic_colours"] = tuple((k, tuple(v)) for k, v in (tc.items() if isinstance(tc, dict) else tc))
         if isinstance(d.get("thin_walls"), bool):                     # results of 2026-11-11 stored a bool
             d["thin_walls"] = "all" if d["thin_walls"] else "off"
         known = set(cls.__dataclass_fields__)
@@ -132,7 +147,8 @@ class LegoResult:
                 "kinds": [b.kind for b in self.model.bricks],                # "" brick, a shaped piece's key, "special"
                 "turns": [b.rot for b in self.model.bricks],                 # shaped pieces: x 90 degrees about z
                 "colours": np.round(self.colours(), 4).tolist(),
-                "floating_bricks": connectivity(self.model)["floating"]}
+                "floating_bricks": connectivity(self.model)["floating"],
+                "assemblies": [a.to_dict() for a in getattr(self.model, "assemblies", None) or ()]}
 
     def save_json(self, path) -> Path:
         path = Path(path)
@@ -169,10 +185,15 @@ class Legolizer:
         mesh = self.mesh(settings)
         sysd = settings.system
         cell = np.array([sysd.pitch, sysd.pitch, sysd.layer_height(settings.unit)])
+        from .artsy import base_layers
+        pad = base_layers(settings)                      # artsy: room for a display base under the model
         key = (self._mesh_key, settings.up, settings.size_mode, float(settings.size), settings.unit, int(settings.samples),
-               tuple(cell))
+               tuple(cell), pad)
         if key != self._vox_key:
             placement, grid = place(mesh.vertices, cell, settings.size_mode, settings.size, settings.up)
+            if pad:
+                placement = Placement(placement.up, placement.scale, placement.offset + np.array([0.0, 0.0, pad * cell[2]]))
+                grid = Grid(grid.origin, grid.cell, (grid.shape[0], grid.shape[1], grid.shape[2] + pad))
             placed = placement.apply(mesh.vertices)
             nx, ny, nz = grid.shape
             self.say(f"voxelizing: grid {nx} x {ny} x {nz} cells, {settings.samples ** 3} samples per cell ...")
@@ -223,25 +244,40 @@ class Legolizer:
         t_load = time.time() - t0
         placement, grid, placed, frac, t_vox = self.voxelize(settings)
         t1 = time.time()
-        occ = occupancy(frac, settings.threshold)
         if settings.thin_walls not in THIN_MODES:
             raise ValueError(f"thin_walls must be one of {THIN_MODES}, not {settings.thin_walls!r}")
+        if settings.style not in STYLES:
+            raise ValueError(f"style must be one of {STYLES}, not {settings.style!r}")
         thin = 0
-        extra = np.zeros_like(occ)
-        if settings.thin_walls != "off":
-            touched = self.touched(settings)
-            extra = (touched & ~occ) if settings.thin_walls == "all" else thin_cells(occ, touched)
-            thin = int(extra.sum())
-            occ = occ | extra
+        art = None
+        if settings.style == "artsy":                # the part read as a builder would (lego_engine.artsy)
+            from .artsy import prepare
+            touched = self.touched(settings) if settings.thin_walls != "off" else None
+            art = prepare(mesh, placed, grid, frac, touched, settings, settings.unit, settings.threshold, self.say)
+            occ = art.occupancy
+            extra = np.zeros_like(occ)
+        else:
+            occ = occupancy(frac, settings.threshold)
+            extra = np.zeros_like(occ)
+            if settings.thin_walls != "off":
+                touched = self.touched(settings)
+                extra = (touched & ~occ) if settings.thin_walls == "all" else thin_cells(occ, touched)
+                thin = int(extra.sum())
+                occ = occ | extra
         solid_occ = occ
         occ = hollow(occ, settings.shell)
         base_occ = occ
         sizes = normalise_sizes(settings.sizes, settings.max_length)
         families = parse_families(settings.shapes)
+        if art is not None and not families and settings.unit == "brick":
+            families = ("curve", "round")                # artsy: round and curved pieces where they fit (brick layers:
+                                                         # in plate layers they are not parts one can buy)
         pieces, fit = [], None
-        if families or settings.special:
+        if families or settings.special or (art is not None and art.printed is not None and art.printed.any()):
             fine = self.fine(settings)
             allowed = ~extra & ~(solid_occ & ~occ)           # not thin-wall cells, not the inside of a hollow model
+            if art is not None and art.contacts is not None:
+                allowed &= ~art.contacts                      # artsy: studded bricks where an assembly holds
             sysd = settings.system
             seat_min = round(min(0.95, (sysd.socket_depth + 0.6) / float(grid.cell[2])), 3)   # room for a socket
             fit = fit_pieces(fine, occ, allowed, families, seat_min=seat_min) if families else \
@@ -253,17 +289,28 @@ class Legolizer:
                                       thin=extra)
                 pieces += special_pieces(cells, fine, sizes)
                 occ = occ | cells
+        if art is not None and art.printed is not None and art.printed.any():   # artsy: printed detail pieces
+            laid = np.zeros_like(occ)
+            for b, _st, _se in pieces:
+                laid[b.i:b.i + b.w, b.j:b.j + b.d, b.layer] = True
+            pieces += special_pieces(art.printed & ~laid, self.fine(settings), sizes)
+            occ = occ | art.printed
         from .details import apply as apply_details, bar_pieces, parse_details
         details = parse_details(settings.details)
+        if art is not None and not details:
+            details = ("tiles", "rods", "bars")         # artsy: the details on
         if "bars" in details:
             laid = np.zeros_like(occ)
             for b, _st, _se in pieces:
                 laid[b.i:b.i + b.w, b.j:b.j + b.d, b.layer] = True
             pieces += bar_pieces(occ, ~laid)
-        cell_colours = self._cell_colours(mesh, placed, occ, grid, settings)
+        cell_colours = self._artsy_colours(self._cell_colours(mesh, placed, occ, grid, settings), art)
         labels = None
         if settings.colour_mode in ("source", "auto") and cell_colours is not None and cell_colours[1] is not None:
             labels = cell_colours[1]                     # visible cells: one colour per brick (a mosaic's rule)
+            if art is not None:                          # artsy: no colour specks
+                from .artsy import block_colours
+                labels = block_colours(labels, occ)
         colour_sizes = colour_size_map(settings, sizes) if labels is not None else None
         model = layout_connected(occ, sizes, 0, settings.bridge_weight, labels=labels, pieces=pieces,
                                  colour_sizes=colour_sizes)
@@ -272,6 +319,10 @@ class Legolizer:
                                                              colour_sizes=colour_sizes)
             if dropped:
                 self.say(f"{dropped} pieces that would not hold were replaced by bricks")
+        if art is not None:
+            model.assemblies = list(art.assemblies)
+            model, occ, cell_colours, pieces = self._artsy_repair(model, occ, cell_colours, pieces, sizes, settings,
+                                                                  colour_sizes, art, mesh, placed, grid)
         detail_counts = {}
         if details:
             model, detail_counts = apply_details(model, details, settings.unit)
@@ -294,7 +345,7 @@ class Legolizer:
         if details:
             st["details"] = detail_counts
         t_layout = time.time() - t1
-        if not model.bricks:
+        if model.empty:
             self.say(f"no bricks: no cell is filled to the threshold {settings.threshold:g} (the fullest is "
                      f"{st['max_fill']:.0%})" + ("" if settings.thin_walls == "all" else
                      " - try thin walls 'all', a lower threshold, or a bigger size"))
@@ -305,12 +356,88 @@ class Legolizer:
                 self.say("one layer only: bricks side by side do not hold together - plates (3.2 mm) or a bigger size "
                          "give more layers")
         source = self._source_colours(model, cell_colours, settings)
+        if art is not None:
+            from .artsy import craft
+            st["craft"] = craft(model, source, art, st)
+            if art.assemblies:
+                self.say(f"artsy: {len(art.assemblies)} axle stack(s), {st['craft']['technic_parts']} Technic parts")
         extra_text = "".join(f", {st[k]} {k}" for k in ("shaped", "special") if st.get(k))
         self.say(f"{st['bricks']} bricks{extra_text} in {st['layers']} layers ({st['size_mm'][0]} x {st['size_mm'][1]} x "
                  f"{st['size_mm'][2]} mm)" + ("" if st["stable"] else f"; {st['groups']} groups, {st['floating']} floating"))
         return LegoResult(settings, mesh, placed, placement, grid, frac, occ, model, st, source,
                           {"load_s": round(t_load, 3), "voxelize_s": round(t_vox, 3), "layout_s": round(t_layout, 3),
                            "total_s": round(time.time() - t0, 3)})
+
+    @staticmethod
+    def _artsy_colours(cell_colours, art):
+        """Artsy: the display base in its own colour (lego_engine.artsy.BASE_COLOUR), whatever surface is nearest."""
+        if art is None or art.base is None or cell_colours is None or cell_colours[1] is None:
+            return cell_colours
+        from .artsy import BASE_COLOUR
+        colours, labels, snapped = (np.array(x, copy=True) for x in cell_colours)
+        k = NAMES.index(BASE_COLOUR)
+        base = art.base
+        colours[base] = PALETTE[BASE_COLOUR]
+        labels[base & (labels >= 0)] = k
+        snapped[base] = k
+        return colours, labels, snapped
+
+    def _artsy_repair(self, model, occ, cell_colours, pieces, sizes, settings, colour_sizes, art, mesh, placed, grid,
+                      rounds: int = 8):
+        """Artsy: a model that stands. While parts float: groups under 4 cells go, larger ones get two posts under
+        their lowest bricks down to the next part or the floor; then the bricks are laid again (colours of the new
+        cells from the input, as everywhere)."""
+        from .analysis import connectivity
+        from .artsy import base_layers, block_colours
+        from .assembly import cells_mask
+        floor = 0 if art.base is not None else base_layers(settings)
+        taken = cells_mask(model.assemblies, occ.shape)
+        for _ in range(rounds):
+            con = connectivity(model)
+            floating = set(con["floating"])
+            if not floating:
+                break
+            groups: Dict[int, list] = {}
+            for n in floating:
+                groups.setdefault(con["group_of"][n], []).append(n)
+            occ = occ.copy()
+            for members in groups.values():
+                bricks = [model.bricks[n] for n in members]
+                mine = set(members)
+                cells = sum(b.w * b.d for b in bricks)
+                if cells < 4:
+                    for b in bricks:
+                        occ[b.i:b.i + b.w, b.j:b.j + b.d, b.layer] = False
+                    continue
+                # posts only where the way down ends on a brick or the floor - not on an axle sub-assembly
+                done = []
+                for b in sorted(bricks, key=lambda b: (b.layer, -b.w * b.d)):
+                    for ci in range(b.i, b.i + b.w):
+                        for cj in range(b.j, b.j + b.d):
+                            if b.layer <= floor or any(abs(ci - a) + abs(cj - c) < 3 for a, c in done):
+                                continue
+                            kk = b.layer - 1
+                            while kk >= floor and not occ[ci, cj, kk] and not taken[ci, cj, kk]:
+                                kk -= 1
+                            if kk >= floor and (taken[ci, cj, kk] or int(model.ids[ci, cj, kk]) in mine):
+                                continue                                   # on an assembly, or on itself
+                            occ[ci, cj, kk + 1:b.layer] = True
+                            done.append((ci, cj))
+                    if len(done) >= 2:
+                        break
+                if not done and cells < 200:                         # nothing to stand on: a small bit goes
+                    for b in bricks:
+                        occ[b.i:b.i + b.w, b.j:b.j + b.d, b.layer] = False
+            pieces = [pc for pc in pieces if occ[pc[0].i:pc[0].i + pc[0].w, pc[0].j:pc[0].j + pc[0].d, pc[0].layer].all()]
+            cell_colours = self._artsy_colours(self._cell_colours(mesh, placed, occ, grid, settings), art)
+            labels = None
+            if settings.colour_mode in ("source", "auto") and cell_colours is not None and cell_colours[1] is not None:
+                labels = block_colours(cell_colours[1], occ)
+            assemblies = model.assemblies
+            model = layout_connected(occ, sizes, 0, settings.bridge_weight, labels=labels, pieces=pieces,
+                                     colour_sizes=colour_sizes)
+            model.assemblies = assemblies
+        return model, occ, cell_colours, pieces
 
     @staticmethod
     def _drop_floating_pieces(model, occ, base_occ, pieces, sizes, settings, labels, rounds: int = 2,

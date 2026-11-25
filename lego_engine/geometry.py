@@ -113,6 +113,9 @@ def bricks_display(model: BrickModel, grid: Grid, system: BrickSystem, indices: 
                 tv, tf = piece_template(b.kind, b.rot, float(p), float(h), float(system.clearance))
                 add(tv + grid.origin + np.array([b.i * p, b.j * p, b.layer * h]), tf, n)
     occ = model.occupancy
+    if getattr(model, "assemblies", None):                # an assembly's support bricks cover the studs under them
+        from .assembly import cells_mask
+        occ = occ | cells_mask(model.assemblies, occ.shape)
     has_stud = model.studs
     nz = occ.shape[2]
     centres, z0, stud_owner = [], [], []

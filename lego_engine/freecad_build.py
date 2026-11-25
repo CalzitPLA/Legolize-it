@@ -245,6 +245,17 @@ for n, (k, i, j, w, d) in enumerate(bricks):
     shp.Placement = obj.Placement
     placed[n] = (shp, cells)
 
+# ---------------------------------------------------------------------------------------------- Technic (artsy)
+if job.get("technic"):                    # the axle sub-assemblies' parts: bought, shown as meshes
+    import Mesh
+    tg = doc.addObject("App::DocumentObjectGroup", "Technic")
+    tg.Label = "Technic (bought)"
+    for t in job["technic"]:
+        obj = doc.addObject("Mesh::Feature", t["name"])
+        obj.Mesh = Mesh.Mesh(t["mesh"])
+        obj.Label = t["label"]
+        tg.addObject(obj)
+
 # ---------------------------------------------------------------------------------------------- the input object
 
 

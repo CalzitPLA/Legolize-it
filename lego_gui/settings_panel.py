@@ -20,6 +20,25 @@ from lego_engine.system import DEFAULT_SIZES, BrickSystem
 
 ALL_SIZES = ((1, 1), (1, 2), (1, 3), (1, 4), (1, 6), (1, 8), (1, 10), (1, 12),
              (2, 2), (2, 3), (2, 4), (2, 6), (2, 8), (2, 10), (2, 12), (4, 4), (4, 6), (4, 8))
+# Modes: presets for the switches that make the look - the algorithm (exact / artsy), the brick catalogue, the shaped,
+# special and detail pieces. Choosing one sets them all; changing one of them by hand shows "custom".
+MODES = {
+    "bricky": dict(label="Bricky - plain bricks, as close to the part as the cells allow", style="exact", shapes=(),
+                   special=False, details=(), sizes=DEFAULT_SIZES, max_length=8),
+    "detailed": dict(label="Detailed - shaped and printed pieces where they fit better, smooth tops", style="exact",
+                     shapes=FAMILIES, special=True, details=DETAILS, sizes=DEFAULT_SIZES, max_length=8),
+    "artsy": dict(label="Artsy - built with craft: axle stacks, printed details, symmetry, larger parts", style="artsy",
+                  shapes=(), special=False, details=DETAILS, sizes=ALL_SIZES, max_length=12,
+                  artsy_symmetry=True, artsy_axles=True, artsy_printed=True),
+}
+MODE_TIPS = {
+    "bricky": "the classic look: plain bricks (or plates) of the common sizes, nothing shaped, nothing printed",
+    "detailed": "as close to the part as possible: slopes, curves, round and dome pieces where they fit, printed special "
+                "pieces where nothing else does, tiles on top, round rods, bars on clips",
+    "artsy": "craftsmanship before accuracy: round bodies as parts threaded on Technic axles, small details printed, "
+             "mirror symmetry, no stray cells or colour specks, larger parts, tiles, rods and bars",
+    "custom": "your own mix: change the mode to set all switches again",
+}
 FILE_FILTER = "Parts (*.stl *.STL *.step *.STEP *.stp *.STP *.obj *.ply *.off *.3mf *.glb);;All files (*)"
 
 
@@ -33,6 +52,23 @@ class SettingsPanel(QtWidgets.QWidget):
         d = LegoSettings()
         s = d.system
         root = QtWidgets.QVBoxLayout(self)
+
+        g = QtWidgets.QGroupBox("Mode")
+        f = QtWidgets.QVBoxLayout(g)
+        self.mode = QtWidgets.QComboBox()
+        for key in ("bricky", "detailed", "artsy"):
+            self.mode.addItem(MODES[key]["label"].split(" - ")[0], key)
+        self.mode.addItem("Custom", "custom")
+        self.mode.setToolTip("presets for the bricks and pieces (below): the algorithm, the brick catalogue, the shaped, "
+                             "special and detail pieces - choosing one checks and unchecks them all")
+        self.mode_note = QtWidgets.QLabel()
+        self.mode_note.setWordWrap(True)
+        self.mode_note.setStyleSheet("QLabel { color: palette(mid); }")
+        self.mode.currentIndexChanged.connect(self._mode_chosen)
+        f.addWidget(self.mode)
+        f.addWidget(self.mode_note)
+        root.addWidget(g)
+        self._applying = False
 
         g = QtWidgets.QGroupBox("Input")
         f = QtWidgets.QFormLayout(g)
@@ -134,6 +170,26 @@ class SettingsPanel(QtWidgets.QWidget):
 
         g = QtWidgets.QGroupBox("Pieces")
         f = QtWidgets.QFormLayout(g)
+        self.style = QtWidgets.QComboBox()
+        self.style.addItem("exact - as close to the part as the cells allow", "exact")
+        self.style.addItem("artsy - built with craft (axles, printed details, symmetry)", "artsy")
+        self.style.setToolTip("artsy: round bodies as parts threaded on an axle, small details printed, mirror symmetry "
+                              "where the part nearly has it, no stray cells or colour specks (lego_engine.artsy)")
+        self.style.currentIndexChanged.connect(lambda _i: (self._style_changed(), self.changed.emit("layout")))
+        f.addRow("Style", self.style)
+        row = QtWidgets.QHBoxLayout()
+        self.artsy_symmetry = QtWidgets.QCheckBox("symmetry")
+        self.artsy_axles = QtWidgets.QCheckBox("axle stacks")
+        self.artsy_printed = QtWidgets.QCheckBox("printed details")
+        for box, tip in ((self.artsy_symmetry, "mirror planes where the part nearly has them"),
+                         (self.artsy_axles, "round bodies as round parts, gears, discs, rims threaded on an axle"),
+                         (self.artsy_printed, "small detailed parts (about a brick) as printed pieces")):
+            box.setChecked(True)
+            box.setToolTip(tip)
+            box.toggled.connect(lambda _v: self.changed.emit("layout"))
+            row.addWidget(box)
+        f.addRow("Artsy", row)
+        self._style_changed()
         grid = QtWidgets.QGridLayout()
         self.family_checks = {}
         for n, (fam, label, tip) in enumerate((
@@ -270,6 +326,14 @@ class SettingsPanel(QtWidgets.QWidget):
         self.go.clicked.connect(self.legolize.emit)
         root.addWidget(self.go)
         root.addStretch(1)
+        # a hand-made change to a switch a mode sets shows "custom"
+        linked = [self.style, self.artsy_symmetry, self.artsy_axles, self.artsy_printed, self.special, self.max_length]
+        linked += list(self.family_checks.values()) + list(self.detail_checks.values()) + list(self.size_checks.values())
+        for w in linked:
+            sig = w.currentIndexChanged if isinstance(w, QtWidgets.QComboBox) else \
+                w.valueChanged if isinstance(w, QtWidgets.QSpinBox) else w.toggled
+            sig.connect(self._linked_changed)
+        self.set_mode("detailed")                  # the window's start (shaped, special and detail pieces on)
 
     def _dspin(self, lo, hi, value, decimals, step, level, tip=""):
         spin = QtWidgets.QDoubleSpinBox()
@@ -310,6 +374,62 @@ class SettingsPanel(QtWidgets.QWidget):
         from lego_gui.servers import ServersDialog
         ServersDialog(self).exec_()
         self.refresh_servers()
+
+    def set_mode(self, key: str, emit: bool = False):
+        """Check and uncheck the switches of mode `key` (MODES) at once; "custom" leaves them as they are."""
+        idx = self.mode.findData(key)
+        self.mode.blockSignals(True)
+        self.mode.setCurrentIndex(max(0, idx))
+        self.mode.blockSignals(False)
+        self.mode_note.setText(MODE_TIPS.get(key, ""))
+        m = MODES.get(key)
+        if m is None:
+            return
+        self._applying = True
+        was = self.blockSignals(True)            # one "layout" for the whole mode, not one per box
+        try:
+            self.style.setCurrentIndex(max(0, self.style.findData(m["style"])))
+            for fam, box in self.family_checks.items():
+                box.setChecked(fam in m["shapes"])
+            for k, box in self.detail_checks.items():
+                box.setChecked(k in m["details"])
+            self.special.setChecked(m["special"])
+            for k, box in self.size_checks.items():
+                box.setChecked(k in m["sizes"] or k == (1, 1))
+            self.max_length.setValue(m["max_length"])
+            self.artsy_symmetry.setChecked(m.get("artsy_symmetry", True))
+            self.artsy_axles.setChecked(m.get("artsy_axles", True))
+            self.artsy_printed.setChecked(m.get("artsy_printed", True))
+            self._style_changed()
+        finally:
+            self.blockSignals(was)
+            self._applying = False
+        if emit:
+            self.changed.emit("layout")
+
+    def _mode_chosen(self, _i):
+        self.set_mode(self.mode.currentData(), emit=True)
+
+    def _linked_changed(self, *_a):
+        if not self._applying and self.mode.currentData() != "custom":
+            self.mode.blockSignals(True)
+            self.mode.setCurrentIndex(self.mode.findData("custom"))
+            self.mode.blockSignals(False)
+            self.mode_note.setText(MODE_TIPS["custom"])
+
+    def mode_of(self, s: LegoSettings) -> str:
+        """The mode whose switches `s` has, or "custom"."""
+        for key, m in MODES.items():
+            if (s.style == m["style"] and set(s.shapes) == set(m["shapes"]) and s.special == m["special"]
+                    and set(s.details) == set(m["details"]) and set(s.sizes) | {(1, 1)} == set(m["sizes"]) | {(1, 1)}
+                    and s.max_length == m["max_length"]):
+                return key
+        return "custom"
+
+    def _style_changed(self):
+        on = self.style.currentData() == "artsy"
+        for box in (self.artsy_symmetry, self.artsy_axles, self.artsy_printed):
+            box.setEnabled(on)
 
     def _special_tol_changed(self, v):
         self.special_tol_label.setText(f"{v / 100:.2f}")
@@ -371,6 +491,11 @@ class SettingsPanel(QtWidgets.QWidget):
                 box.setChecked(fam in s.shapes)
             for key, box in self.detail_checks.items():
                 box.setChecked(key in s.details)
+            self.style.setCurrentIndex(max(0, self.style.findData(s.style)))
+            self.artsy_symmetry.setChecked(s.artsy_symmetry != "off")
+            self.artsy_axles.setChecked(s.artsy_axles)
+            self.artsy_printed.setChecked(s.artsy_printed)
+            self._style_changed()
             self.special.setChecked(s.special)
             self.special_tol.setValue(int(round(s.special_tolerance * 100)))
             self.special_tol_label.setText(f"{s.special_tolerance:.2f}")
@@ -381,6 +506,11 @@ class SettingsPanel(QtWidgets.QWidget):
         finally:
             for w in self.findChildren(QtWidgets.QWidget):
                 w.blockSignals(False)
+        key = self.mode_of(s)
+        self.mode.blockSignals(True)
+        self.mode.setCurrentIndex(self.mode.findData(key))
+        self.mode.blockSignals(False)
+        self.mode_note.setText(MODE_TIPS[key])
 
     def settings(self, colour_mode: str = "auto", fade: str = "sunset", single: str = "red") -> LegoSettings:
         system = replace(BrickSystem(), **{k: float(w.value()) for k, w in self.sys_fields.items()})
@@ -394,5 +524,7 @@ class SettingsPanel(QtWidgets.QWidget):
             snap_colours=self.snap.isChecked(),
             shapes=tuple(f for f in FAMILIES if self.family_checks[f].isChecked()),
             details=tuple(k for k in DETAILS if self.detail_checks[k].isChecked()),
+            style=self.style.currentData(), artsy_symmetry="auto" if self.artsy_symmetry.isChecked() else "off",
+            artsy_axles=self.artsy_axles.isChecked(), artsy_printed=self.artsy_printed.isChecked(),
             special=self.special.isChecked(), special_tolerance=self.special_tol.value() / 100.0,
             deflection=float(self.deflection.value()), system=system)

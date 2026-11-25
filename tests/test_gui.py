@@ -30,6 +30,27 @@ def test_settings_panel_round_trip(app):
     assert set(got.sizes) == set(s.sizes)
 
 
+def test_the_mode_sets_the_switches_at_once_and_a_hand_change_makes_it_custom(app):
+    from lego_gui.settings_panel import MODES, SettingsPanel
+    panel = SettingsPanel()
+    seen = []
+    panel.changed.connect(seen.append)
+    for key in ("bricky", "artsy", "detailed"):
+        seen.clear()
+        panel.mode.setCurrentIndex(panel.mode.findData(key))
+        s, m = panel.settings(), MODES[key]
+        assert seen == ["layout"]                           # one redo for the whole mode, not one per box
+        assert (s.style, set(s.shapes), s.special, set(s.details), s.max_length) == \
+            (m["style"], set(m["shapes"]), m["special"], set(m["details"]), m["max_length"])
+        assert set(s.sizes) | {(1, 1)} == set(m["sizes"]) | {(1, 1)}
+        assert panel.mode_of(s) == key
+    panel.size_checks[(4, 8)].setChecked(True)              # by hand
+    assert panel.mode.currentData() == "custom"
+    panel.set_settings(LegoSettings(style="artsy", shapes=(), special=False, details=MODES["artsy"]["details"],
+                                    sizes=MODES["artsy"]["sizes"], max_length=12))
+    assert panel.mode.currentData() == "artsy" and panel.artsy_axles.isEnabled()
+
+
 def test_the_resolution_slider_sets_the_size(app):
     from lego_gui.app import MainWindow
     win = MainWindow()

@@ -35,11 +35,26 @@ are not connected to the bottom.*
    round corners, round bricks, dome corners and inverted ones go only where they match the part better than the
    bricks; special pieces carry the part's exact shape, to be printed. The window shows how far the model is from the
    part (its *deviation*).
-5. **Parts that stack.** Every stud and what receives it - walls, tubes, posts, sockets - is sized from one
+5. **Three modes** (the window's *Mode*, see the picture below): *bricky* - plain bricks of the common sizes;
+   *detailed* - shaped and special pieces, tiles on top, round rods, bars on clips; *artsy* - craftsmanship before
+   accuracy: round bodies become parts threaded on **Technic axles** (round bricks and plates with an axle hole,
+   gears, discs, rims), held by bricks with an axle hole or standing on studs; small detailed parts become printed
+   pieces; mirror symmetry, no stray cells or colour specks, larger parts. The Technic parts are listed as bought in
+   the parts list, the orders and the STL stack (`bought.csv`); the manual builds each axle stack first.
+6. **Parts that stack.** Every stud and what receives it - walls, tubes, posts, sockets - is sized from one
    tolerance, the stud play; the FreeCAD export measures stacked parts and finds no overlap and exactly that play.
-6. **Out:** a coloured **FreeCAD** document (a solid per part, a spreadsheet of dimensions), an **STL stack** to
+7. **Out:** a coloured **FreeCAD** document (a solid per part, a spreadsheet of dimensions), an **STL stack** to
    print (a slab per layer that plugs into the next, or single parts), and a **building manual** (LaTeX and PDF,
    below). Heavy runs can go to a **server over ssh**.
+
+<p align="center"><img src="docs/images/modes.png" width="860" alt="The mushroom at 20 studs in plates, in the three
+modes: bricky, detailed and artsy"></p>
+
+*The mushroom at 20 studs in plates. Bricky: 303 plain bricks and plates (21 % of its volume off). Detailed: shaped
+and printed pieces (15 % off; the magenta parts are not connected yet - more studs fix that). Artsy: the stem is a
+stack of round bricks on a Technic axle, the cap bricks and tiles, the umbo a printed piece (41 % off - accuracy is
+not what it optimises - and it holds). At 12 studs artsy mode builds the whole mushroom as one stack: round bricks,
+round plates 6x6 and 4x4 on an axle 12L, no brick at all.*
 
 ### The building manual
 
@@ -69,10 +84,18 @@ along.
 
 ```bash
 ./install.sh            # environment ~/.local/share/legolize-it/venv (with the system's packages), the command
-                        # legolize-it, the desktop entry "Legolize it" and its icon
-legolize-it check       # packages, FreeCAD, one part into bricks with both exports
-./install.sh --uninstall
+                        # legolize-it, the desktop entry "Legolize it" and its icon; run it again to update
+                        # (after a git pull: the command runs this folder's code)
+legolize-it check       # packages, FreeCAD, the desktop entry, one part into bricks with both exports and the same
+                        # part in artsy mode
+legolize-it uninstall   # the command, the desktop entry, the icons and the environment (= ./install.sh --uninstall);
+                        # your results in ~/legolize_results stay
+legolize-it uninstall --purge   # also the caches (~/.cache/legolize) and the server list (~/.config/legolize-it)
 ```
+
+The desktop entry opens the window in the mode *Detailed*; right-click it in the applications menu or the dock for
+*Legolize it - artsy mode* and *Legolize it - bricky mode* (the same as `legolize-it --artsy` and
+`legolize-it --bricks-only`). It opens STL, STEP, PLY, OBJ, 3MF, glTF and OFF files.
 
 Needs Python >= 3.10 with numpy, scipy, trimesh, libigl, manifold3d (and PyQt5, vtk for the window) -
 `requirements*.txt`. FreeCAD's `freecadcmd` is used for STEP input and the FreeCAD export
@@ -80,10 +103,14 @@ Needs Python >= 3.10 with numpy, scipy, trimesh, libigl, manifold3d (and PyQt5, 
 
 ## Use
 
-**The window:** `legolize-it [part.stl|part.step]` (or `python3 -m lego_gui`). Open a part (or drop it on the window),
-press *Legolize it* (F5).
+**The window:** `legolize-it [part.stl|part.step]` (or `python3 -m lego_gui`; `--artsy` or `--bricks-only` start in
+that mode). Open a part (or drop it on the window), press *Legolize it* (F5).
 
-- left: the settings - size (studs along the longest side, or a scale factor), layer height (brick 9.6 / plate 3.2 mm),
+- left: the settings - the *Mode* on top sets the switches that make the look at once: *Bricky* (plain bricks of the
+  common sizes), *Detailed* (shaped and printed pieces, tiles, rods, bars - the window's start) or *Artsy* (artsy
+  mode, see below: axle stacks, printed details, symmetry, the larger sizes up to 12 long); a switch changed by hand
+  shows *Custom*; the command line's `--bricks-only` and `--artsy` start in Bricky and Artsy; then size (studs along
+  the longest side, or a scale factor), layer height (brick 9.6 / plate 3.2 mm),
   up axis, fill threshold, shell, thin walls (auto / all / off), the brick catalogue, *Pieces* (the shaped families and
   special pieces with their tolerance - on in the window, off on the command line unless asked), the brick system's
   dimensions with the *stud play*, export options and *Run exports on* (this computer or a server); after the first
@@ -203,6 +230,19 @@ special pieces are listed apart (no standard pack). Shipping to Germany 5.95 EUR
    laid before the bricks. Tiles and rods keep every brick's place, so the cover, the colours and how the model holds
    do not change (nothing sits on a tile). The manual draws tiles with an inner edge and no studs, a bar as a line
    between its two clips.
+   **Artsy mode** (`artsy.py`, `--style artsy`; in the window: *Pieces > Style*): built with craft, not to the last
+   cell. Round bodies (a colour, a separate part, or the whole, whose outline stays the same all round one of the grid
+   axes) become parts threaded on a Technic axle (`technic.py`: round plates and bricks with axle hole, gears, discs,
+   rims; `assembly.py`): bodies on one axle make one stack, its profile cut into runs filled with as few and as thick
+   parts as fit, each part in the input's colour around it; a lying axle is held by a brick with an axle hole at each
+   end (on posts if need be), an upright stack (round 2x2 / 4x4 / 6x6) sits on studs. Only where the body shows - a
+   stem that runs on inside a cap stays bricks there. Small detailed parts (about a brick) become printed pieces;
+   mirror planes are enforced where the part nearly has them (`--artsy-symmetry off`); stray cells, pinholes and
+   one-cell colour specks go; one-cell staircases get corner cells so they hold; a display base goes under parts that
+   stand apart (`artsy_base`); a repair loop adds posts until nothing floats. `technic_colours` limits the Technic
+   parts to the colours a shop sells. The manual builds each stack as a sub-assembly first; STL and FreeCAD exports
+   leave the bought Technic parts out (`stl/bought.csv`). The report (`stats["craft"]`) counts techniques, parts,
+   part types, colour regions and visible studs; the deviation is shown, not optimised.
 4. **Layout** (`layout.py`): per layer, the first free cell in scan order anchors the brick with the best score: area,
    + bridging two or three bricks below, + the layer's direction (layers cross), - ending on a joint of the layer below
    (running bond). Repair passes (`layout_connected`): where two groups touch side by side without holding together

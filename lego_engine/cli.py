@@ -53,6 +53,14 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--shapes", default="none",
                     help=f"shaped pieces where they fit better than bricks: a list of {', '.join(FAMILIES)}, or all, "
                          "or none (default)")
+    ap.add_argument("--style", choices=("exact", "artsy"), default="exact",
+                    help="exact (default): as close to the part as the cells allow; artsy: built with craft - round "
+                         "bodies as parts on an axle, small details printed, mirror symmetry, round and curved pieces "
+                         "and the details (lego_engine.artsy)")
+    ap.add_argument("--artsy-symmetry", choices=("auto", "off"), default="auto",
+                    help="--style artsy: mirror planes where the part nearly has them (auto) or none")
+    ap.add_argument("--no-artsy-axles", action="store_true", help="--style artsy: no axle stacks")
+    ap.add_argument("--no-artsy-printed", action="store_true", help="--style artsy: no printed detail pieces")
     ap.add_argument("--details", default="none",
                     help="parts for a set-like look (lego_engine.details): a list of tiles (smooth tops, plate layers), "
                          "rods (round 1x1 columns), bars (on clips, for free-standing runs), or all, or none (default)")
@@ -104,7 +112,9 @@ def settings_from_args(args) -> LegoSettings:
                         threshold=args.threshold, samples=args.samples, shell=args.shell, thin_walls=args.thin_walls,
                         sizes=parse_sizes(args.sizes), max_length=args.max_length, colour_mode=args.colours,
                         fade=args.fade, single_colour=args.single, shapes=parse_families(args.shapes),
-                        details=parse_details(args.details),
+                        details=parse_details(args.details), style=args.style,
+                        artsy_symmetry=args.artsy_symmetry, artsy_axles=not args.no_artsy_axles,
+                        artsy_printed=not args.no_artsy_printed,
                         special=args.special is not None,
                         special_tolerance=0.3 if args.special is None else args.special,
                         bridge_weight=args.interlock, deflection=args.deflection, snap_colours=not args.no_snap,
@@ -147,10 +157,15 @@ def settings_args(s: LegoSettings) -> List[str]:
            "--max-length", str(s.max_length), "--interlock", repr(float(s.bridge_weight)),
            "--deflection", repr(float(s.deflection)), "--colours", s.colour_mode, "--fade", s.fade,
            "--single", s.single_colour, "--shapes", ",".join(s.shapes) or "none",
-           "--details", ",".join(s.details) or "none",
+           "--details", ",".join(s.details) or "none", "--style", s.style,
+           "--artsy-symmetry", s.artsy_symmetry,
            "--system-json", json.dumps(s.system.to_dict(), separators=(",", ":"))]
     if s.special:
         out += ["--special", repr(float(s.special_tolerance))]
+    if not s.artsy_axles:
+        out.append("--no-artsy-axles")
+    if not s.artsy_printed:
+        out.append("--no-artsy-printed")
     if not s.snap_colours:
         out.append("--no-snap")
     if s.colour_sizes:
@@ -219,9 +234,10 @@ def main(argv=None) -> int:
     summary = {"result": str(out / "result.json"), **{k: result.stats[k] for k in
                ("bricks", "shaped", "special", "layers", "grid", "size_mm", "counts", "groups", "floating", "stable")},
                "timings": result.timings}
-    if "details" in result.stats:
-        summary["details"] = result.stats["details"]
-    if not result.model.bricks:
+    for key in ("details", "craft", "technic"):
+        if key in result.stats:
+            summary[key] = result.stats[key]
+    if result.model.empty:
         summary["error"] = "no bricks - nothing exported (see the message above)"
         print(json.dumps(summary, indent=1))
         return 2

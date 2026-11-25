@@ -97,6 +97,9 @@ def apply(model: BrickModel, details: Iterable[str], unit: str) -> Tuple[BrickMo
     details = tuple(details)
     bricks = list(model.bricks)
     occ = model.occupancy
+    if getattr(model, "assemblies", None):              # an axle sub-assembly covers what is under its support bricks
+        from .assembly import cells_mask
+        occ = occ | cells_mask(model.assemblies, occ.shape)
     nx, ny, nz = occ.shape
     studs = np.ones(occ.shape, bool) if model.stud_cells is None else model.stud_cells.copy()
     seats = np.ones(occ.shape, bool) if model.seat_cells is None else model.seat_cells.copy()
@@ -153,7 +156,7 @@ def apply(model: BrickModel, details: Iterable[str], unit: str) -> Tuple[BrickMo
             ids = ids.copy()
 
             def held(bs):
-                m = BrickModel(bs, ids, model.sizes, model.layer_axis, studs, seats)
+                m = BrickModel(bs, ids, model.sizes, model.layer_axis, studs, seats, {}, list(model.assemblies))
                 c = connectivity(m)
                 return c["groups"], len(c["floating"])
 
@@ -182,7 +185,8 @@ def apply(model: BrickModel, details: Iterable[str], unit: str) -> Tuple[BrickMo
                     bricks[:], ids[...], studs[...], seats[...] = saved[0], saved[1], saved[2], saved[3]
                 else:
                     counts["tiles"] += added
-    new = BrickModel(bricks, ids, model.sizes, dict(model.layer_axis), studs, seats, dict(model.special_meshes))
+    new = BrickModel(bricks, ids, model.sizes, dict(model.layer_axis), studs, seats, dict(model.special_meshes),
+                     list(model.assemblies))
     return new, counts
 
 

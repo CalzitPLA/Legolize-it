@@ -20,7 +20,9 @@ def main():
     ap.add_argument("--unit", choices=("brick", "plate"), default=None)
     ap.add_argument("--up", default=None, help="the part's up axis: z, y, x, -z, -y, -x")
     ap.add_argument("--colours", default=None, help="auto, source, size, layer, mixed, random, rainbow, fade, single")
-    ap.add_argument("--bricks-only", action="store_true", help="start without shaped and special pieces")
+    ap.add_argument("--bricks-only", action="store_true", help="start in the mode 'bricky': plain bricks only")
+    ap.add_argument("--artsy", action="store_true",          # not --style: Qt takes that one for itself
+                    help="start in the mode 'artsy': built with craft - axle stacks, printed details, symmetry")
     ap.add_argument("--run", action="store_true", help="legolize the part at once")
     ap.add_argument("--window", choices=("normal", "maximized", "full"), default="normal")
     ap.add_argument("--screenshot", default=None, metavar="PNG", help="run, save the 3D view, quit")
@@ -49,9 +51,11 @@ def main():
         s = replace(s, unit=args.unit)
     if args.up:
         s = replace(s, up=args.up)
-    if args.bricks_only:
-        s = replace(s, shapes=(), special=False)
     panel.set_settings(s)
+    if args.bricks_only:
+        panel.set_mode("bricky")                      # the modes check and uncheck the switches at once
+    if args.artsy:
+        panel.set_mode("artsy")
     if args.colours:
         win.view.set_colour_mode(args.colours)
     {"maximized": win.showMaximized, "full": win.showFullScreen}.get(args.window, win.show)()

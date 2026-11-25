@@ -36,6 +36,10 @@ Arrays are indexed `[i, j, k]` = `[x, y, layer]`; cell `(i, j, k)` spans `origin
 |---|---|
 | `lego_engine/system.py` | `BrickSystem` (every dimension, mm; `fit()`: walls, tubes, posts, sockets from the stud play), the size catalogue, `parse_sizes`, `normalise_sizes`, `name_area` |
 | `lego_engine/shapes.py` | shaped pieces (`CATALOGUE`: height fields, `mask`, `cell_props` studs/seats, `outline` for the solids - also the details' tiles and bars), `fine_samples`, `fit_pieces`, `special_cells`, `special_pieces`, `deviation` |
+| `lego_gui/settings_panel.py` `MODES` | the window's *Mode* presets (bricky / detailed / artsy): style, catalogue, longest brick, shaped, special and detail pieces at once; `set_mode`, `mode_of` (else "custom") |
+| `lego_engine/technic.py` | Technic parts for artsy mode: axles, parts with a cross hole, support bricks (`PARTS`, Pick a Brick design numbers, radius and length along the axle), `axles_for`, `standard_colour`, `part_mesh` |
+| `lego_engine/assembly.py` | `Assembly`: an axle with threaded parts along x, y or z, its support bricks and cells; `place`, `meshes`, `frame`, `cells_mask`; one rigid node in `analysis.connectivity` |
+| `lego_engine/artsy.py` | artsy mode: `prepare` (roundness per colour / component / whole, axle stacks from profiles, visibility, symmetry, corner cells, base, posts, printed details), `block_colours`, `clean`, `craft` (the report) |
 | `lego_engine/details.py` | details laid by rule: `bar_pieces` (bars on two clips, pieces before the layout), `apply` (tiles on uncovered plates, round 1x1 rods - after the layout), `parse_details` |
 | `lego_engine/mesh_io.py` | loading; `find_freecadcmd`, `tessellate_step` (cache `~/.cache/legolize/step/`); `up_matrix` |
 | `lego_engine/voxelize.py` | `Grid`, `Placement`, `place`, `fill_fraction`, `surface_cells`, `thin_cells`, `occupancy`, `hollow` |

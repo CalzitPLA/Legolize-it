@@ -34,7 +34,7 @@ def write_stl_stack(result, out_dir, mode: str = "layers", hollow_bricks: bool =
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, not {mode!r}")
     say = progress or (lambda _t: None)
-    if not result.model.bricks:
+    if result.model.empty:
         raise ValueError("nothing to export: the model has no bricks")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -112,6 +112,19 @@ def write_stl_stack(result, out_dir, mode: str = "layers", hollow_bricks: bool =
             wr.writerow([n, b.layer, round(b.layer * h, 3), round(x, 3), round(y, 3), b.name,
                          "x" if b.along_x else "y", b.i, b.j, b.w, b.d, b.kind, b.rot])
     manifest["files"]["parts"] = "parts.csv"
+    asm = list(getattr(model, "assemblies", None) or ())
+    if asm:                                          # artsy: the axle sub-assemblies' parts are bought, not printed
+        from .technic import PARTS
+        count = {}
+        for a in asm:
+            for (key, colour), n in a.part_counts().items():
+                count[(key, colour)] = count.get((key, colour), 0) + n
+        with open(out / "bought.csv", "w", newline="") as fh:
+            wr = csv.writer(fh)
+            wr.writerow(["part", "name", "design", "colour", "count"])
+            for (key, colour), n in sorted(count.items()):
+                wr.writerow([key, PARTS[key].name, PARTS[key].designs[0], colour, n])
+        manifest["files"]["bought"] = "bought.csv"
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
     (out / "README.txt").write_text(_readme(manifest, result))
     say(f"STL stack written to {out}")

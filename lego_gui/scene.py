@@ -95,6 +95,7 @@ class Scene:
         self.layers: List = []                 # per layer: bodies and the studs nothing covers
         self.caps: List = []                   # per layer: the covered studs (shown when the view stops there)
         self.layer_index: List[int] = []
+        self.assembly_actors: List = []        # (mount layer, actor): the parts of axle sub-assemblies (artsy)
         self.visible: Dict[str, bool] = {"input": True, "bricks": True, "voxels": False}
         self.limit: Optional[int] = None
         self.result = None
@@ -109,9 +110,10 @@ class Scene:
         kit.AddLightsToRenderer(self.renderer)
 
     def clear(self):
-        for a in self.layers + [c for c in self.caps if c is not None]:
+        for a in self.layers + [c for c in self.caps if c is not None] + [x for _k, x in self.assembly_actors]:
             self.renderer.RemoveActor(a)
         self.layers, self.caps, self.layer_index, self.result, self.bounds = [], [], [], None, None
+        self.assembly_actors = []
         self.input.VisibilityOff()
         self.voxels.VisibilityOff()
 
@@ -145,10 +147,25 @@ class Scene:
             self.layers.append(actor)
             self.caps.append(cap)
             self.layer_index.append(k)
+        self.add_assemblies(model, result.grid, result.system)
         lo = np.minimum(result.placed_vertices.min(0), result.grid.origin)
         hi = np.maximum(result.placed_vertices.max(0), result.grid.origin + result.grid.size)
         self.bounds = (lo, hi)
         self.apply()
+
+    def add_assemblies(self, model, grid, system):
+        """Actors for the parts of the model's axle sub-assemblies, each in its colour, shown from the layer they are
+        mounted in."""
+        from lego_engine.assembly import meshes
+        from lego_engine.palette import PALETTE
+        layers = sorted({b.layer for b in model.bricks})
+        for a in getattr(model, "assemblies", None) or ():
+            # shown from the step it goes in: its layer, or the next with parts (the manual's rule)
+            k = next((x for x in layers if x >= a.mount_layer), layers[-1] if layers else a.mount_layer)
+            for v, f, colour in meshes(a, grid, system):
+                actor = _actor(self.renderer, PALETTE.get(colour, (0.6, 0.6, 0.6)))
+                actor.GetMapper().SetInputData(polydata(v, f, smooth=True))
+                self.assembly_actors.append((k, actor))
 
     def dim_except(self, layer: Optional[int], amount: float = 0.5):
         """The layers below `layer` pale and flat, so the bricks of `layer` stand out (None: all as usual)."""
@@ -179,6 +196,8 @@ class Scene:
             actor.SetVisibility(int(on))
             if cap is not None:
                 cap.SetVisibility(int(on and top is not None and k == top and k != self.layer_index[-1]))
+        for k, actor in self.assembly_actors:
+            actor.SetVisibility(int(has and self.visible["bricks"] and (self.limit is None or k <= self.limit)))
 
     def view(self, name: str = "iso"):
         if self.bounds is None:
@@ -303,3 +322,51 @@ def render_steps(result, out_dir, size=(900, 760), colours=None, prefix: str = "
             progress(f"picture of layer {k}")
     window.Finalize()
     return out
+
+
+def render_assembly(assembly, grid, system, path, size=(700, 520)):
+    """An offscreen picture of one axle sub-assembly on its own (the building manual's sub-assembly pages)."""
+    from pathlib import Path
+    import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
+    from vtkmodules.vtkIOImage import vtkPNGWriter
+    from vtkmodules.vtkRenderingCore import vtkRenderer, vtkRenderWindow, vtkWindowToImageFilter
+    from lego_engine.assembly import meshes
+    from lego_engine.palette import PALETTE
+    window = vtkRenderWindow()
+    window.SetOffScreenRendering(1)
+    window.SetMultiSamples(0)
+    window.SetSize(*size)
+    renderer = vtkRenderer()
+    renderer.SetBackground(1.0, 1.0, 1.0)
+    window.AddRenderer(renderer)
+    from vtkmodules.vtkRenderingCore import vtkLightKit
+    kit = vtkLightKit()
+    kit.SetKeyLightIntensity(0.85)
+    kit.AddLightsToRenderer(renderer)
+    pts = []
+    for v, f, colour in meshes(assembly, grid, system):
+        actor = _actor(renderer, PALETTE.get(colour, (0.6, 0.6, 0.6)))
+        actor.GetMapper().SetInputData(polydata(v, f, smooth=True))
+        pts.append(v)
+    allv = np.concatenate(pts)
+    c = (allv.min(0) + allv.max(0)) / 2
+    d = 2.6 * float(np.linalg.norm(allv.max(0) - allv.min(0)))
+    cam = renderer.GetActiveCamera()
+    cam.SetFocalPoint(*c)
+    cam.SetPosition(*(c + d * np.array([0.55, -0.75, 0.45])))
+    cam.SetViewUp(0, 0, 1)
+    renderer.ResetCamera()
+    cam.Zoom(1.2)
+    window.Render()
+    grab = vtkWindowToImageFilter()
+    grab.SetInput(window)
+    grab.ReadFrontBufferOff()
+    grab.Update()
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    writer = vtkPNGWriter()
+    writer.SetFileName(str(path))
+    writer.SetInputConnection(grab.GetOutputPort())
+    writer.Write()
+    window.Finalize()
+    return path
