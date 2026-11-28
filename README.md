@@ -1,4 +1,4 @@
-<p align="center"><img src="packaging/icons/legolize-it_256.png" width="200" alt="Legolize it: a Golden Teacher mushroom of bricks, not fully built"></p>
+<p align="center"><img src="packaging/icons/legolize-it_256.png" width="200" alt="Legolize it: a mushroom of bricks, not fully built"></p>
 
 # Legolize it
 
@@ -370,9 +370,8 @@ snapped to a palette of brick colours (*Colours: from the input*).
 
 ## The logo
 
-A Golden Teacher (*Psilocybe cubensis*): caramel umbo, golden cap, pale margin, dark gills, the white stem with its
-spore-darkened ring - modelled in Blender, turned into bricks by Legolize it itself and rendered in Blender, not fully
-built:
+A mushroom: caramel centre, golden cap, pale margin, dark gills and a white stem - modelled in Blender, turned into
+bricks by Legolize it itself and rendered in Blender, not fully built:
 
 ```bash
 python3 packaging/logo/make_logo.py       # ~1.5 min: examples/golden_teacher.*, packaging/legolize-it.png, icons/
