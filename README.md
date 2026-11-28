@@ -88,7 +88,7 @@ title, parts list, two steps"></p>
 rainbow colours: title and three steps"></p>
 
 Examples, made with the commands below:
-[the mushroom](examples/manuals/golden_teacher_manual.pdf) (24 pages: 222 parts, 91 shaped, 21 special) and
+[the mushroom](examples/manuals/mushroom_manual.pdf) (24 pages: 220 parts, 90 shaped, 21 special) and
 [the capsule](examples/manuals/capsule_manual.pdf) (`examples/capsule.step`, 17 pages: 191 parts, rainbow colours).
 
 ```bash
